@@ -2,7 +2,7 @@
 FROM node:latest AS ci
 LABEL cicd="gambit-dev"
 WORKDIR /app
-COPY package*.json ./
+COPY node/package*.json ./
 RUN npm ci --development
 COPY node ./
 
