@@ -17,4 +17,4 @@ COPY --from=ci /app /app/
 COPY --from=ci /app/node_modules node_modules
 
 # Launch our App.
-CMD ["node", "index.js"]
+CMD ["node", "/app/index.js"]
