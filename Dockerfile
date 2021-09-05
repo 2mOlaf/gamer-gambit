@@ -2,13 +2,9 @@
 FROM node:latest AS ci
 LABEL cicd="gambit-dev"
 WORKDIR /app
-COPY node/package*.json ./
+COPY node/* ./
 RUN npm ci --development
-COPY node ./
-
-# test
-# RUN npm test
-
+# test okay?
 # get production modules
 RUN rm -rf node_modules && npm ci --production
 
