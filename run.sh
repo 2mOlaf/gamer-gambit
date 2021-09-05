@@ -1,7 +1,7 @@
 #!/bin/sh
 echo "Starting Gamer Gambit CICD..."
 tag="gambit"   # tag of your container
-service="con" # docker-compose section to start
+service="app" # docker-compose section to start
 
 stop_timeout=10
 need_build=false

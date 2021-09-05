@@ -15,8 +15,6 @@ LABEL cicd="gambit-prod"
 WORKDIR /app
 COPY --from=ci /app /app/
 COPY --from=ci /app/node_modules node_modules
-USER node
-RUN chown -R node:node ./node_modules
 
 # Launch our App.
 CMD ["node", "index.js"]
