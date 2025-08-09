@@ -1,0 +1,150 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kallax
+  namespace: gamer-gambit
+  labels:
+    app: kallax
+    component: discord-bot
+    version: v1.0.0
+spec:
+  replicas: 1  # Discord bots should typically run as single instance
+  strategy:
+    type: Recreate  # Ensure only one instance runs at a time
+  selector:
+    matchLabels:
+      app: kallax
+      component: discord-bot
+  template:
+    metadata:
+      labels:
+        app: kallax
+        component: discord-bot
+        version: v1.0.0
+    spec:
+      containers:
+      - name: kallax
+        image: python:3.11-slim
+        imagePullPolicy: Always
+        workingDir: /app
+        command:
+          - /bin/bash
+          - -c
+          - |
+            echo "Installing dependencies..."
+            pip install --no-cache-dir -r requirements.txt
+            echo "Starting Kallax Discord Bot..."
+            python bot.py
+        env:
+        # Load configuration from secrets
+        - name: DISCORD_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: kallax-config
+              key: DISCORD_TOKEN
+        - name: DISCORD_GUILD_ID
+          valueFrom:
+            secretKeyRef:
+              name: kallax-config
+              key: DISCORD_GUILD_ID
+              optional: true
+        - name: DATABASE_PATH
+          valueFrom:
+            secretKeyRef:
+              name: kallax-config
+              key: DATABASE_PATH
+        - name: BGG_API_BASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: kallax-config
+              key: BGG_API_BASE_URL
+        - name: COMMAND_PREFIX
+          valueFrom:
+            secretKeyRef:
+              name: kallax-config
+              key: COMMAND_PREFIX
+        - name: DEFAULT_WEEKLY_STATS_CHANNEL
+          valueFrom:
+            secretKeyRef:
+              name: kallax-config
+              key: DEFAULT_WEEKLY_STATS_CHANNEL
+        - name: STEAM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kallax-api-keys
+              key: STEAM_API_KEY
+              optional: true
+        - name: XBOX_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kallax-api-keys
+              key: XBOX_API_KEY
+              optional: true
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: app-source
+          mountPath: /app
+        - name: data-volume
+          mountPath: /app/data
+        # Health checks
+        livenessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - "ps aux | grep -v grep | grep python"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - "ps aux | grep -v grep | grep python && test -f /app/data/kallax.db"
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        # Graceful shutdown
+        terminationGracePeriodSeconds: 30
+      initContainers:
+      - name: setup-source
+        image: alpine/git:latest
+        command:
+          - /bin/sh
+          - -c
+          - |
+            echo "Cloning source code..."
+            if [ -d "/app/.git" ]; then
+              cd /app
+              git pull origin main
+            else
+              git clone https://github.com/yourusername/gamer-gambit.git /tmp/repo
+              cp -r /tmp/repo/discord/kallax/* /app/
+            fi
+            echo "Source setup complete"
+        volumeMounts:
+        - name: app-source
+          mountPath: /app
+        # If using a private repo, add secret for git credentials
+        # env:
+        # - name: GIT_TOKEN
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: git-credentials
+        #       key: token
+      volumes:
+      - name: app-source
+        emptyDir: {}
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: kallax-data
+      restartPolicy: Always

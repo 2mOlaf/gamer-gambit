@@ -1,0 +1,32 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: kallax-nfs-storage
+  labels:
+    app: kallax
+    component: storage
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: mimisbrunnr.gradin.lan
+  share: /volume2/k8s-pvc
+  # Uncomment and modify if you need specific mount options
+  # mountOptions: "nfsvers=4.1,rsize=1048576,wsize=1048576"
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kallax-data
+  namespace: gamer-gambit
+  labels:
+    app: kallax
+    component: storage
+spec:
+  accessModes:
+    - ReadWriteMany  # NFS supports multiple readers/writers
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: kallax-nfs-storage

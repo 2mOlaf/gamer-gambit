@@ -1,0 +1,29 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-general
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: urdarbrunnr.gradin.lan
+  share: /k8s-storage
+  # NFS mount options for better performance and reliability
+  # mountOptions: "nfsvers=4.1,rsize=1048576,wsize=1048576,hard,intr"
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+---
+# Alternative storage class for data that should be retained
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-retain
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: urdarbrunnr.gradin.lan
+  share: /k8s-persistent
+  # mountOptions: "nfsvers=4.1,rsize=1048576,wsize=1048576,hard,intr"
+reclaimPolicy: Retain  # Keep data when PVC is deleted
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
