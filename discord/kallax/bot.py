@@ -75,11 +75,23 @@ class KallaxBot(commands.Bot):
         logger.info(f'{self.user} has connected to Discord!')
         logger.info(f'Bot is in {len(self.guilds)} guilds')
         
+        # List all guilds for debugging
+        for guild in self.guilds:
+            logger.info(f'Guild: {guild.name} (ID: {guild.id})')
+        
         # Sync slash commands (only once)
         if not self.synced:
             try:
-                synced = await self.tree.sync()
-                logger.info(f"Synced {len(synced)} command(s)")
+                guild_id = os.getenv('DISCORD_GUILD_ID')
+                if guild_id:
+                    # Sync to specific guild (instant)
+                    guild = discord.Object(id=int(guild_id))
+                    synced = await self.tree.sync(guild=guild)
+                    logger.info(f"Synced {len(synced)} command(s) to guild {guild_id}")
+                else:
+                    # Sync globally (takes up to 1 hour)
+                    synced = await self.tree.sync()
+                    logger.info(f"Synced {len(synced)} command(s) globally (may take up to 1 hour to appear)")
                 self.synced = True
             except Exception as e:
                 logger.error(f"Failed to sync commands: {e}")

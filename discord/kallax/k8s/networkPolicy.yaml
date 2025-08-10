@@ -1,0 +1,217 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kallax-network-policy
+  namespace: gamer-gambit
+  labels:
+    app: kallax
+    component: discord-bot
+spec:
+  # Apply to Kallax Discord bot pods
+  podSelector:
+    matchLabels:
+      app: kallax
+      component: discord-bot
+  
+  # Policy types - we want to control both ingress and egress
+  policyTypes:
+  - Ingress
+  - Egress
+
+  # Ingress rules - allow health monitoring and potential debugging
+  ingress:
+  # Allow health checks from within the same namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: gamer-gambit
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  # Allow connections from monitoring systems (if using Prometheus/Grafana)
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring  # Adjust this if your monitoring namespace has different labels
+    ports:
+    - protocol: TCP
+      port: 8080
+
+  # Egress rules - allow necessary outbound connections
+  egress:
+  # DNS resolution (required for all external API calls)
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+  # Discord API (HTTPS)
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    # Optional: Add Discord's IP ranges for more security
+    # You can get these from Discord's documentation
+
+  # BoardGameGeek API (HTTPS)
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+
+  # Steam API (HTTPS) - optional external service
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+
+  # Xbox API (HTTPS) - optional external service  
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+
+  # Package installation during container startup (APT repositories)
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 80   # HTTP for APT repositories
+    - protocol: TCP
+      port: 443  # HTTPS for APT repositories
+
+  # Python Package Index (PyPI) for pip installations
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+
+  # NFS server access for source code volume
+  - to:
+    - podSelector: {}  # This might need adjustment based on your NFS setup
+    ports:
+    - protocol: TCP
+      port: 2049  # Standard NFS port
+    - protocol: UDP
+      port: 2049
+    - protocol: TCP
+      port: 111   # RPC portmapper
+    - protocol: UDP
+      port: 111
+
+  # Allow internal cluster communication for persistent volumes and services
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: gamer-gambit
+    ports:
+    - protocol: TCP
+      port: 8080
+
+---
+# Optional: More restrictive NetworkPolicy for production
+# This version limits external access to specific IP ranges
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kallax-network-policy-restrictive
+  namespace: gamer-gambit
+  labels:
+    app: kallax
+    component: discord-bot
+    environment: production
+spec:
+  podSelector:
+    matchLabels:
+      app: kallax
+      component: discord-bot
+  
+  policyTypes:
+  - Ingress
+  - Egress
+
+  ingress:
+  # Only allow health checks from monitoring namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8080
+
+  egress:
+  # DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+  # Discord API - you can restrict this to Discord's actual IP ranges
+  # Example Discord CDN/API ranges (verify these are current):
+  - to:
+    - ipBlock:
+        cidr: 162.159.128.0/24  # Example Cloudflare range used by Discord
+    - ipBlock:
+        cidr: 162.159.129.0/24
+    - ipBlock:
+        cidr: 162.159.130.0/24
+    ports:
+    - protocol: TCP
+      port: 443
+
+  # BoardGameGeek API
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0  # You could restrict this to BGG's actual IP ranges
+        except:
+        - 10.0.0.0/8     # Exclude internal networks
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443
+
+  # Steam/Xbox APIs - similar approach
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443
+
+  # Your internal NFS server
+  - to:
+    - ipBlock:
+        cidr: 192.168.0.0/16  # Adjust to match your internal network
+    ports:
+    - protocol: TCP
+      port: 2049
+    - protocol: UDP
+      port: 2049
+    - protocol: TCP
+      port: 111
+    - protocol: UDP
+      port: 111
+
+  # Package repositories (during startup only)
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 44
