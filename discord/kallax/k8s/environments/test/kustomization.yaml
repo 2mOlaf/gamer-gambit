@@ -1,0 +1,38 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: gamer-gambit-test
+
+resources:
+- ../../base
+
+namePrefix: test-
+
+commonLabels:
+  environment: test
+  app: kallax-test
+  version: v1.0.0-test
+
+patches:
+- target:
+    kind: Deployment
+    name: kallax
+  patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: ENVIRONMENT
+        value: "test"
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: GITHUB_BRANCH
+        value: "develop"
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: LOG_LEVEL
+        value: "DEBUG"
+    - op: replace
+      path: /spec/template/spec/containers/0/env/0/valueFrom/secretKeyRef/name
+      value: kallax-test-config

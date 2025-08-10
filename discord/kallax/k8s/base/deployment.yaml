@@ -1,0 +1,794 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "5"
+    kubectl.kubernetes.io/last-applied-configuration: "{\"apiVersion\":\"apps/v1\",\"kind\":\"Deployment\",\"metadata\":{\"annotations\":{},\"labels\":{\"app\":\"kallax\",\"component\":\"discord-bot\",\"version\":\"v1.0.0\"},\"name\":\"kallax\",\"namespace\":\"gamer-gambit\"},\"spec\":{\"replicas\":1,\"selector\":{\"matchLabels\":{\"app\":\"kallax\",\"component\":\"discord-bot\"}},\"strategy\":{\"type\":\"Recreate\"},\"template\":{\"metadata\":{\"labels\":{\"app\":\"kallax\",\"component\":\"discord-bot\",\"version\":\"v1.0.0\"}},\"spec\":{\"containers\":[{\"command\":[\"/bin/bash\",\"-c\",\"echo
+      \\\"\U0001F3B2 Setting up Kallax - Your Gaming Companion Bot\\\"\\necho \\\"Installing
+      system dependencies...\\\"\\napt-get update \\u0026\\u0026 apt-get install -y
+      git\\n\\necho \\\"Installing Python dependencies...\\\"\\ncat \\u003e /app/requirements.txt
+      \\u003c\\u003c 'EOF'\\ndiscord.py\\u003e=2.3.0\\naiohttp\\u003e=3.8.0\\naiosqlite\\u003e=0.19.0\\npython-dotenv\\u003e=1.0.0\\nbeautifulsoup4\\u003e=4.12.0\\npillow\\u003e=10.0.0\\nrequests\\u003e=2.31.0\\nxmltodict\\u003e=0.13.0\\nEOF\\npip
+      install --no-cache-dir -r /app/requirements.txt\\n\\necho \\\"Creating full-featured
+      Kallax bot...\\\"\\n\\n# Create utils directory and database module\\nmkdir
+      -p /app/utils /app/cogs\\n\\n# Database utility\\ncat \\u003e /app/utils/database.py
+      \\u003c\\u003c 'DBEOF'\\nimport aiosqlite\\nimport logging\\nfrom pathlib import
+      Path\\nfrom typing import Optional, List, Dict, Any\\n\\nlogger = logging.getLogger(__name__)\\n\\nclass
+      Database:\\n    def __init__(self, db_path: str):\\n        self.db_path = db_path\\n
+      \       self.connection: Optional[aiosqlite.Connection] = None\\n        \\n
+      \   async def initialize(self):\\n        db_dir = Path(self.db_path).parent\\n
+      \       db_dir.mkdir(parents=True, exist_ok=True)\\n        \\n        self.connection
+      = await aiosqlite.connect(self.db_path)\\n        await self._create_tables()\\n
+      \       logger.info(f\\\"Database initialized at {self.db_path}\\\")\\n        \\n
+      \   async def _create_tables(self):\\n        await self.connection.executescript(\\\"\\\"\\\"\\n
+      \           CREATE TABLE IF NOT EXISTS user_profiles (\\n                discord_id
+      INTEGER PRIMARY KEY,\\n                bgg_username TEXT,\\n                steam_id
+      TEXT,\\n                xbox_gamertag TEXT,\\n                weekly_stats_enabled
+      BOOLEAN DEFAULT FALSE,\\n                weekly_stats_channel_id INTEGER,\\n
+      \               created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\\n                updated_at
+      TIMESTAMP DEFAULT CURRENT_TIMESTAMP\\n            );\\n            \\n            CREATE
+      TABLE IF NOT EXISTS game_cache (\\n                bgg_id INTEGER PRIMARY KEY,\\n
+      \               name TEXT NOT NULL,\\n                year_published INTEGER,\\n
+      \               image_url TEXT,\\n                thumbnail_url TEXT,\\n                description
+      TEXT,\\n                min_players INTEGER,\\n                max_players INTEGER,\\n
+      \               playing_time INTEGER,\\n                min_playtime INTEGER,\\n
+      \               max_playtime INTEGER,\\n                min_age INTEGER,\\n
+      \               rating REAL,\\n                rating_count INTEGER,\\n                weight
+      REAL,\\n                cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\\n            );\\n
+      \           \\n            CREATE INDEX IF NOT EXISTS idx_user_profiles_bgg_username
+      ON user_profiles(bgg_username);\\n        \\\"\\\"\\\")\\n        await self.connection.commit()\\n
+      \       \\n    async def close(self):\\n        if self.connection:\\n            await
+      self.connection.close()\\n            \\n    async def get_user_profile(self,
+      discord_id: int) -\\u003e Optional[Dict[str, Any]]:\\n        cursor = await
+      self.connection.execute(\\n            \\\"SELECT * FROM user_profiles WHERE
+      discord_id = ?\\\", \\n            (discord_id,)\\n        )\\n        row =
+      await cursor.fetchone()\\n        if row:\\n            columns = [description[0]
+      for description in cursor.description]\\n            return dict(zip(columns,
+      row))\\n        return None\\n        \\n    async def create_user_profile(self,
+      discord_id: int, **kwargs) -\\u003e bool:\\n        try:\\n            await
+      self.connection.execute(\\\"\\\"\\\"\\n                INSERT OR REPLACE INTO
+      user_profiles \\n                (discord_id, bgg_username, steam_id, xbox_gamertag,
+      weekly_stats_enabled, weekly_stats_channel_id, updated_at)\\n                VALUES
+      (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)\\n            \\\"\\\"\\\", (\\n                discord_id,\\n
+      \               kwargs.get('bgg_username'),\\n                kwargs.get('steam_id'),\\n
+      \               kwargs.get('xbox_gamertag'),\\n                kwargs.get('weekly_stats_enabled',
+      False),\\n                kwargs.get('weekly_stats_channel_id')\\n            ))\\n
+      \           await self.connection.commit()\\n            return True\\n        except
+      Exception as e:\\n            logger.error(f\\\"Error creating user profile:
+      {e}\\\")\\n            return False\\n            \\n    async def cache_game(self,
+      game_data: Dict[str, Any]) -\\u003e bool:\\n        try:\\n            await
+      self.connection.execute(\\\"\\\"\\\"\\n                INSERT OR REPLACE INTO
+      game_cache \\n                (bgg_id, name, year_published, image_url, thumbnail_url,
+      description, \\n                 min_players, max_players, playing_time, min_playtime,
+      max_playtime, \\n                 min_age, rating, rating_count, weight, cached_at)\\n
+      \               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)\\n
+      \           \\\"\\\"\\\", (\\n                game_data.get('bgg_id'),\\n                game_data.get('name'),\\n
+      \               game_data.get('year_published'),\\n                game_data.get('image_url'),\\n
+      \               game_data.get('thumbnail_url'),\\n                game_data.get('description'),\\n
+      \               game_data.get('min_players'),\\n                game_data.get('max_players'),\\n
+      \               game_data.get('playing_time'),\\n                game_data.get('min_playtime'),\\n
+      \               game_data.get('max_playtime'),\\n                game_data.get('min_age'),\\n
+      \               game_data.get('rating'),\\n                game_data.get('rating_count'),\\n
+      \               game_data.get('weight')\\n            ))\\n            await
+      self.connection.commit()\\n            return True\\n        except Exception
+      as e:\\n            logger.error(f\\\"Error caching game: {e}\\\")\\n            return
+      False\\nDBEOF\\n\\n# BGG API Client\\ncat \\u003e /app/utils/bgg_api.py \\u003c\\u003c
+      'BGGEOF'\\nimport asyncio\\nimport logging\\nimport re\\nfrom typing import
+      Dict, List, Optional, Any\\n\\nimport aiohttp\\nimport xmltodict\\nfrom bs4
+      import BeautifulSoup\\n\\nlogger = logging.getLogger(__name__)\\n\\nclass BGGApiClient:\\n
+      \   BASE_URL = \\\"https://boardgamegeek.com/xmlapi2\\\"\\n    \\n    def __init__(self):\\n
+      \       self.session: Optional[aiohttp.ClientSession] = None\\n        \\n    async
+      def __aenter__(self):\\n        self.session = aiohttp.ClientSession()\\n        return
+      self\\n        \\n    async def __aexit__(self, exc_type, exc_val, exc_tb):\\n
+      \       if self.session:\\n            await self.session.close()\\n            \\n
+      \   async def _make_request(self, endpoint: str, params: Dict[str, Any] = None)
+      -\\u003e Optional[Dict]:\\n        if not self.session:\\n            raise
+      RuntimeError(\\\"Client must be used as async context manager\\\")\\n            \\n
+      \       url = f\\\"{self.BASE_URL}/{endpoint}\\\"\\n        max_retries = 3\\n
+      \       retry_delay = 2\\n        \\n        for attempt in range(max_retries):\\n
+      \           try:\\n                async with self.session.get(url, params=params)
+      as response:\\n                    if response.status == 202:\\n                        logger.info(f\\\"BGG
+      API processing request, waiting {retry_delay}s...\\\")\\n                        await
+      asyncio.sleep(retry_delay)\\n                        retry_delay *= 2\\n                        continue\\n
+      \                       \\n                    if response.status == 200:\\n
+      \                       content = await response.text()\\n                        return
+      xmltodict.parse(content)\\n                        \\n                    logger.warning(f\\\"BGG
+      API returned status {response.status}\\\")\\n                    \\n            except
+      Exception as e:\\n                logger.error(f\\\"Error making BGG API request:
+      {e}\\\")\\n                \\n            if attempt \\u003c max_retries - 1:\\n
+      \               await asyncio.sleep(retry_delay)\\n                retry_delay
+      *= 2\\n                \\n        return None\\n    \\n    async def search_games(self,
+      query: str, exact: bool = False) -\\u003e List[Dict[str, Any]]:\\n        params
+      = {\\n            'query': query,\\n            'type': 'boardgame',\\n        }\\n
+      \       if exact:\\n            params['exact'] = '1'\\n            \\n        data
+      = await self._make_request('search', params)\\n        if not data or 'items'
+      not in data:\\n            return []\\n            \\n        items = data['items']\\n
+      \       if not items or 'item' not in items:\\n            return []\\n            \\n
+      \       game_items = items['item']\\n        if not isinstance(game_items, list):\\n
+      \           game_items = [game_items]\\n            \\n        results = []\\n
+      \       for item in game_items:\\n            if isinstance(item, dict):\\n
+      \               result = {\\n                    'bgg_id': int(item.get('@id',
+      0)),\\n                    'name': item.get('name', {}).get('@value', 'Unknown'),\\n
+      \                   'year_published': item.get('yearpublished', {}).get('@value'),\\n
+      \               }\\n                if result['bgg_id']:\\n                    results.append(result)\\n
+      \                   \\n        return results\\n    \\n    async def get_game_details(self,
+      game_ids: List[int]) -\\u003e List[Dict[str, Any]]:\\n        if not game_ids:\\n
+      \           return []\\n            \\n        ids_str = ','.join(map(str, game_ids))\\n
+      \       params = {\\n            'id': ids_str,\\n            'stats': '1',\\n
+      \       }\\n        \\n        data = await self._make_request('thing', params)\\n
+      \       if not data or 'items' not in data:\\n            return []\\n            \\n
+      \       items = data['items']\\n        if not items or 'item' not in items:\\n
+      \           return []\\n            \\n        game_items = items['item']\\n
+      \       if not isinstance(game_items, list):\\n            game_items = [game_items]\\n
+      \           \\n        results = []\\n        for item in game_items:\\n            if
+      not isinstance(item, dict):\\n                continue\\n                \\n
+      \           try:\\n                game_data = self._parse_game_item(item)\\n
+      \               if game_data:\\n                    results.append(game_data)\\n
+      \           except Exception as e:\\n                logger.error(f\\\"Error
+      parsing game item: {e}\\\")\\n                \\n        return results\\n    \\n
+      \   def _parse_game_item(self, item: Dict) -\\u003e Optional[Dict[str, Any]]:\\n
+      \       try:\\n            bgg_id = int(item.get('@id', 0))\\n            if
+      not bgg_id:\\n                return None\\n                \\n            names
+      = item.get('name', [])\\n            if not isinstance(names, list):\\n                names
+      = [names]\\n                \\n            primary_name = None\\n            for
+      name in names:\\n                if isinstance(name, dict) and name.get('@type')
+      == 'primary':\\n                    primary_name = name.get('@value')\\n                    break\\n
+      \                   \\n            if not primary_name and names:\\n                primary_name
+      = names[0].get('@value') if isinstance(names[0], dict) else str(names[0])\\n
+      \               \\n            description = item.get('description', '')\\n
+      \           if description:\\n                soup = BeautifulSoup(description,
+      'html.parser')\\n                description = re.sub(r'\\\\s+', ' ', soup.get_text()).strip()\\n
+      \               \\n            stats = item.get('statistics', {}).get('ratings',
+      {})\\n            \\n            return {\\n                'bgg_id': bgg_id,\\n
+      \               'name': primary_name or 'Unknown Game',\\n                'year_published':
+      self._safe_int(item.get('yearpublished', {}).get('@value')),\\n                'image_url':
+      item.get('image'),\\n                'thumbnail_url': item.get('thumbnail'),\\n
+      \               'description': description[:1000] if description else None,\\n
+      \               'min_players': self._safe_int(item.get('minplayers', {}).get('@value')),\\n
+      \               'max_players': self._safe_int(item.get('maxplayers', {}).get('@value')),\\n
+      \               'playing_time': self._safe_int(item.get('playingtime', {}).get('@value')),\\n
+      \               'min_playtime': self._safe_int(item.get('minplaytime', {}).get('@value')),\\n
+      \               'max_playtime': self._safe_int(item.get('maxplaytime', {}).get('@value')),\\n
+      \               'min_age': self._safe_int(item.get('minage', {}).get('@value')),\\n
+      \               'rating': self._safe_float(stats.get('average', {}).get('@value')),\\n
+      \               'rating_count': self._safe_int(stats.get('usersrated', {}).get('@value')),\\n
+      \               'weight': self._safe_float(stats.get('averageweight', {}).get('@value')),\\n
+      \           }\\n        except Exception as e:\\n            logger.error(f\\\"Error
+      parsing game item: {e}\\\")\\n            return None\\n    \\n    @staticmethod\\n
+      \   def _safe_int(value) -\\u003e Optional[int]:\\n        if value is None
+      or value == '':\\n            return None\\n        try:\\n            return
+      int(float(value))\\n        except (ValueError, TypeError):\\n            return
+      None\\n    \\n    @staticmethod\\n    def _safe_float(value) -\\u003e Optional[float]:\\n
+      \       if value is None or value == '':\\n            return None\\n        try:\\n
+      \           return float(value)\\n        except (ValueError, TypeError):\\n
+      \           return None\\nBGGEOF\\n\\n# Game Search Cog\\ncat \\u003e /app/cogs/game_search.py
+      \\u003c\\u003c 'GSEOF'\\nimport discord\\nfrom discord.ext import commands\\nimport
+      asyncio\\nimport logging\\nfrom typing import List, Dict, Any\\n\\nimport sys\\nsys.path.append('/app')\\nfrom
+      utils.bgg_api import BGGApiClient\\n\\nlogger = logging.getLogger(__name__)\\n\\nclass
+      GameSearchCog(commands.Cog):\\n    def __init__(self, bot):\\n        self.bot
+      = bot\\n        \\n    @commands.command(name='search', aliases=['find', 'game'])\\n
+      \   @commands.cooldown(1, 5, commands.BucketType.user)\\n    async def search_game(self,
+      ctx, *, query: str):\\n        \\\"\\\"\\\"Search for board games on BoardGameGeek\\\"\\\"\\\"\\n
+      \       if not query or len(query.strip()) \\u003c 2:\\n            await ctx.send(\\\"❌
+      Please provide a game name to search for (at least 2 characters)\\\")\\n            return\\n
+      \           \\n        async with ctx.typing():\\n            try:\\n                async
+      with BGGApiClient() as bgg:\\n                    search_results = await bgg.search_games(query.strip())\\n
+      \                   \\n                    if not search_results:\\n                        await
+      ctx.send(f\\\"❌ No games found matching '{query}'\\\")\\n                        return\\n
+      \                       \\n                    search_results = search_results[:10]\\n
+      \                   \\n                    if len(search_results) == 1:\\n                        await
+      self._show_game_details(ctx, search_results[0]['bgg_id'])\\n                        return\\n
+      \                       \\n                    await self._show_search_results(ctx,
+      search_results, query)\\n                    \\n            except Exception
+      as e:\\n                logger.error(f\\\"Error searching for games: {e}\\\")\\n
+      \               await ctx.send(\\\"❌ An error occurred while searching. Please
+      try again.\\\")\\n    \\n    async def _show_search_results(self, ctx, results:
+      List[Dict[str, Any]], original_query: str):\\n        number_emojis = ['1️⃣',
+      '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '\U0001F51F']\\n        \\n
+      \       embed = discord.Embed(\\n            title=f\\\"\U0001F3B2 Search Results
+      for '{original_query}'\\\",\\n            description=\\\"React with a number
+      to see detailed information about that game.\\\",\\n            color=discord.Color.blue()\\n
+      \       )\\n        \\n        for i, game in enumerate(results[:10]):\\n            year_str
+      = f\\\" ({game['year_published']})\\\" if game['year_published'] else \\\"\\\"\\n
+      \           embed.add_field(\\n                name=f\\\"{number_emojis[i]}
+      {game['name']}{year_str}\\\",\\n                value=f\\\"BGG ID: {game['bgg_id']}\\\",\\n
+      \               inline=False\\n            )\\n            \\n        embed.set_footer(text=\\\"React
+      within 60 seconds to select a game\\\")\\n        \\n        message = await
+      ctx.send(embed=embed)\\n        \\n        for i in range(min(len(results),
+      10)):\\n            await message.add_reaction(number_emojis[i])\\n            \\n
+      \       def check(reaction, user):\\n            return (\\n                user
+      == ctx.author and\\n                reaction.message.id == message.id and\\n
+      \               str(reaction.emoji) in number_emojis[:len(results)]\\n            )\\n
+      \           \\n        try:\\n            reaction, user = await self.bot.wait_for('reaction_add',
+      timeout=60.0, check=check)\\n            \\n            selected_index = number_emojis.index(str(reaction.emoji))\\n
+      \           selected_game = results[selected_index]\\n            \\n            await
+      self._show_game_details(ctx, selected_game['bgg_id'])\\n            \\n        except
+      asyncio.TimeoutError:\\n            try:\\n                await message.clear_reactions()\\n
+      \               embed.set_footer(text=\\\"Selection timed out\\\")\\n                await
+      message.edit(embed=embed)\\n            except discord.NotFound:\\n                pass\\n
+      \               \\n    async def _show_game_details(self, ctx, game_id: int):\\n
+      \       async with ctx.typing():\\n            try:\\n                async
+      with BGGApiClient() as bgg:\\n                    games = await bgg.get_game_details([game_id])\\n
+      \                   \\n                    if not games:\\n                        await
+      ctx.send(\\\"❌ Could not retrieve game details.\\\")\\n                        return\\n
+      \                       \\n                    game = games[0]\\n                    \\n
+      \                   # Cache the game data\\n                    await self.bot.database.cache_game(game)\\n
+      \                   \\n                    embed = await self._create_game_embed(game)\\n
+      \                   await ctx.send(embed=embed)\\n                    \\n            except
+      Exception as e:\\n                logger.error(f\\\"Error getting game details:
+      {e}\\\")\\n                await ctx.send(\\\"❌ An error occurred while getting
+      game details.\\\")\\n                \\n    async def _create_game_embed(self,
+      game: Dict[str, Any]) -\\u003e discord.Embed:\\n        embed = discord.Embed(\\n
+      \           title=game['name'],\\n            url=f\\\"https://boardgamegeek.com/boardgame/{game['bgg_id']}\\\",\\n
+      \           color=discord.Color.green()\\n        )\\n        \\n        if
+      game.get('thumbnail_url'):\\n            embed.set_thumbnail(url=game['thumbnail_url'])\\n
+      \           \\n        if game.get('image_url'):\\n            embed.set_image(url=game['image_url'])\\n
+      \           \\n        info_lines = []\\n        if game.get('year_published'):\\n
+      \           info_lines.append(f\\\"**Year:** {game['year_published']}\\\")\\n
+      \           \\n        if game.get('min_players') and game.get('max_players'):\\n
+      \           if game['min_players'] == game['max_players']:\\n                info_lines.append(f\\\"**Players:**
+      {game['min_players']}\\\")\\n            else:\\n                info_lines.append(f\\\"**Players:**
+      {game['min_players']} - {game['max_players']}\\\")\\n                \\n        if
+      game.get('playing_time'):\\n            info_lines.append(f\\\"**Play Time:**
+      {game['playing_time']} min\\\")\\n        elif game.get('min_playtime') and
+      game.get('max_playtime'):\\n            info_lines.append(f\\\"**Play Time:**
+      {game['min_playtime']} - {game['max_playtime']} min\\\")\\n            \\n        if
+      game.get('min_age'):\\n            info_lines.append(f\\\"**Min Age:** {game['min_age']}+\\\")\\n
+      \           \\n        if info_lines:\\n            embed.add_field(name=\\\"\U0001F4CB
+      Game Info\\\", value=\\\"\\\\n\\\".join(info_lines), inline=True)\\n            \\n
+      \       rating_lines = []\\n        if game.get('rating'):\\n            rating_lines.append(f\\\"**BGG
+      Rating:** {game['rating']:.1f}/10\\\")\\n            \\n        if game.get('rating_count'):\\n
+      \           rating_lines.append(f\\\"**Ratings:** {game['rating_count']:,}\\\")\\n
+      \           \\n        if game.get('weight'):\\n            weight_desc = self._get_weight_description(game['weight'])\\n
+      \           rating_lines.append(f\\\"**Complexity:** {game['weight']:.1f}/5
+      ({weight_desc})\\\")\\n            \\n        if rating_lines:\\n            embed.add_field(name=\\\"⭐
+      Ratings\\\", value=\\\"\\\\n\\\".join(rating_lines), inline=True)\\n        \\n
+      \       if game.get('description'):\\n            desc = game['description']\\n
+      \           if len(desc) \\u003e 300:\\n                desc = desc[:297] +
+      \\\"...\\\"\\n            embed.add_field(name=\\\"\U0001F4D6 Description\\\",
+      value=desc, inline=False)\\n            \\n        embed.set_footer(\\n            text=f\\\"BGG
+      ID: {game['bgg_id']} | Kallax Gaming Bot\\\",\\n            icon_url=\\\"https://cf.geekdo-static.com/images/logos/navbar-logo-bgg-b2.svg\\\"\\n
+      \       )\\n        \\n        return embed\\n    \\n    @staticmethod\\n    def
+      _get_weight_description(weight: float) -\\u003e str:\\n        if weight \\u003c
+      1.5:\\n            return \\\"Light\\\"\\n        elif weight \\u003c 2.5:\\n
+      \           return \\\"Light-Medium\\\"\\n        elif weight \\u003c 3.5:\\n
+      \           return \\\"Medium\\\"\\n        elif weight \\u003c 4.5:\\n            return
+      \\\"Medium-Heavy\\\"\\n        else:\\n            return \\\"Heavy\\\"\\n            \\n
+      \   @commands.command(name='random', aliases=['rand'])\\n    @commands.cooldown(1,
+      10, commands.BucketType.user)\\n    async def random_game(self, ctx):\\n        \\\"\\\"\\\"Get
+      a random popular board game\\\"\\\"\\\"\\n        async with ctx.typing():\\n
+      \           try:\\n                import random\\n                popular_game_ids
+      = [\\n                    174430,  # Gloomhaven\\n                    12333,
+      \  # Twilight Struggle\\n                    167791,  # Terraforming Mars\\n
+      \                   220308,  # Gaia Project\\n                    161936,  #
+      Pandemic Legacy: Season 1\\n                    224517,  # Brass: Birmingham\\n
+      \                   266192,  # Wingspan\\n                    162886,  # Spirit
+      Island\\n                    246900,  # Root\\n                    299006,  #
+      Barrage\\n                ]\\n                \\n                selected_id
+      = random.choice(popular_game_ids)\\n                await self._show_game_details(ctx,
+      selected_id)\\n                \\n            except Exception as e:\\n                logger.error(f\\\"Error
+      getting random game: {e}\\\")\\n                await ctx.send(\\\"❌ An error
+      occurred while finding a random game.\\\")\\n\\nasync def setup(bot):\\n    await
+      bot.add_cog(GameSearchCog(bot))\\nGSEOF\\n\\n# Main bot file\\ncat \\u003e /app/bot.py
+      \\u003c\\u003c 'BOTEOF'\\nimport asyncio\\nimport logging\\nimport os\\nfrom
+      pathlib import Path\\n\\nimport discord\\nfrom discord.ext import commands\\nfrom
+      dotenv import load_dotenv\\n\\nfrom utils.database import Database\\n\\nload_dotenv()\\n\\nlogging.basicConfig(\\n
+      \   level=logging.INFO,\\n    format='%(asctime)s - %(name)s - %(levelname)s
+      - %(message)s',\\n    handlers=[\\n        logging.StreamHandler()\\n    ]\\n)\\n\\nlogger
+      = logging.getLogger(__name__)\\n\\nclass KallaxBot(commands.Bot):\\n    def
+      __init__(self):\\n        intents = discord.Intents.default()\\n        intents.message_content
+      = True\\n        intents.guilds = True\\n        intents.members = True\\n        \\n
+      \       super().__init__(\\n            command_prefix=os.getenv('COMMAND_PREFIX',
+      '!'),\\n            intents=intents,\\n            description=\\\"Kallax -
+      Your Gaming Companion Bot\\\"\\n        )\\n        \\n        self.database
+      = None\\n        \\n    async def setup_hook(self):\\n        db_path = os.getenv('DATABASE_PATH',
+      '/app/data/kallax.db')\\n        self.database = Database(db_path)\\n        await
+      self.database.initialize()\\n        \\n        await self.load_cogs()\\n        \\n
+      \       logger.info(\\\"Bot setup completed successfully\\\")\\n        \\n
+      \   async def load_cogs(self):\\n        cogs_dir = Path(__file__).parent /
+      'cogs'\\n        \\n        for cog_file in cogs_dir.glob('*.py'):\\n            if
+      cog_file.name.startswith('_'):\\n                continue\\n                \\n
+      \           cog_name = f'cogs.{cog_file.stem}'\\n            try:\\n                await
+      self.load_extension(cog_name)\\n                logger.info(f\\\"Loaded cog:
+      {cog_name}\\\")\\n            except Exception as e:\\n                logger.error(f\\\"Failed
+      to load cog {cog_name}: {e}\\\")\\n                \\n    async def on_ready(self):\\n
+      \       logger.info(f'\U0001F3B2 {self.user} has connected to Discord!')\\n
+      \       logger.info(f'\U0001F3AE Bot is in {len(self.guilds)} guilds')\\n        logger.info(f'\U0001F4CA
+      Loaded {len(self.cogs)} cogs')\\n        \\n        activity = discord.Game(name=\\\"Board
+      Games | !search \\u003cgame\\u003e\\\")\\n        await self.change_presence(activity=activity)\\n
+      \       \\n        # Log some stats\\n        total_members = sum(guild.member_count
+      for guild in self.guilds)\\n        logger.info(f'\U0001F465 Serving {total_members}
+      members across {len(self.guilds)} servers')\\n        \\n    async def on_command_error(self,
+      ctx, error):\\n        if isinstance(error, commands.CommandNotFound):\\n            return\\n
+      \       elif isinstance(error, commands.MissingRequiredArgument):\\n            await
+      ctx.send(f\\\"❌ Missing required argument: {error.param}\\\")\\n        elif
+      isinstance(error, commands.CommandOnCooldown):\\n            await ctx.send(f\\\"⏰
+      Command on cooldown. Try again in {error.retry_after:.2f} seconds.\\\")\\n        else:\\n
+      \           logger.error(f\\\"Command error: {error}\\\")\\n            await
+      ctx.send(\\\"❌ An unexpected error occurred. Please try again.\\\")\\n            \\n
+      \   @commands.command(name='status')\\n    async def status_command(self, ctx):\\n
+      \       \\\"\\\"\\\"Show bot status and statistics\\\"\\\"\\\"\\n        embed
+      = discord.Embed(\\n            title=\\\"\U0001F3B2 Kallax Bot Status\\\",\\n
+      \           color=discord.Color.green()\\n        )\\n        \\n        embed.add_field(name=\\\"\U0001F7E2
+      Status\\\", value=\\\"Online \\u0026 Ready\\\", inline=True)\\n        embed.add_field(name=\\\"\U0001F3E0
+      Servers\\\", value=len(self.guilds), inline=True)\\n        embed.add_field(name=\\\"\U0001F465
+      Members\\\", value=sum(g.member_count for g in self.guilds), inline=True)\\n
+      \       embed.add_field(name=\\\"\U0001F527 Cogs Loaded\\\", value=len(self.cogs),
+      inline=True)\\n        embed.add_field(name=\\\"\U0001F4C8 Uptime\\\", value=\\\"Recently
+      started\\\", inline=True)\\n        embed.add_field(name=\\\"\U0001F3AE Features\\\",
+      value=\\\"Game Search, BGG Integration\\\", inline=True)\\n        \\n        embed.set_footer(text=\\\"Kallax
+      - Your Gaming Companion Bot\\\")\\n        await ctx.send(embed=embed)\\n\\nasync
+      def main():\\n    token = os.getenv('DISCORD_TOKEN')\\n    if not token:\\n
+      \       logger.error(\\\"DISCORD_TOKEN not found in environment variables\\\")\\n
+      \       return\\n        \\n    bot = KallaxBot()\\n    \\n    try:\\n        await
+      bot.start(token)\\n    except KeyboardInterrupt:\\n        logger.info(\\\"Bot
+      shutdown requested\\\")\\n    finally:\\n        if bot.database:\\n            await
+      bot.database.close()\\n        await bot.close()\\n\\nif __name__ == \\\"__main__\\\":\\n
+      \   asyncio.run(main())\\nBOTEOF\\n\\necho \\\"\U0001F680 Starting full-featured
+      Kallax Discord Bot...\\\"\\npython bot.py\\n\"],\"env\":[{\"name\":\"DISCORD_TOKEN\",\"valueFrom\":{\"secretKeyRef\":{\"key\":\"DISCORD_TOKEN\",\"name\":\"kallax-config\"}}},{\"name\":\"DISCORD_GUILD_ID\",\"valueFrom\":{\"secretKeyRef\":{\"key\":\"DISCORD_GUILD_ID\",\"name\":\"kallax-config\",\"optional\":true}}},{\"name\":\"DATABASE_PATH\",\"valueFrom\":{\"secretKeyRef\":{\"key\":\"DATABASE_PATH\",\"name\":\"kallax-config\"}}},{\"name\":\"BGG_API_BASE_URL\",\"valueFrom\":{\"secretKeyRef\":{\"key\":\"BGG_API_BASE_URL\",\"name\":\"kallax-config\"}}},{\"name\":\"COMMAND_PREFIX\",\"valueFrom\":{\"secretKeyRef\":{\"key\":\"COMMAND_PREFIX\",\"name\":\"kallax-config\"}}},{\"name\":\"DEFAULT_WEEKLY_STATS_CHANNEL\",\"valueFrom\":{\"secretKeyRef\":{\"key\":\"DEFAULT_WEEKLY_STATS_CHANNEL\",\"name\":\"kallax-config\"}}},{\"name\":\"STEAM_API_KEY\",\"valueFrom\":{\"secretKeyRef\":{\"key\":\"STEAM_API_KEY\",\"name\":\"kallax-api-keys\",\"optional\":true}}},{\"name\":\"XBOX_API_KEY\",\"valueFrom\":{\"secretKeyRef\":{\"key\":\"XBOX_API_KEY\",\"name\":\"kallax-api-keys\",\"optional\":true}}}],\"image\":\"python:3.11-slim\",\"imagePullPolicy\":\"Always\",\"livenessProbe\":{\"exec\":{\"command\":[\"/bin/bash\",\"-c\",\"ps
+      aux | grep -v grep | grep 'python bot.py'\"]},\"failureThreshold\":3,\"initialDelaySeconds\":90,\"periodSeconds\":30,\"timeoutSeconds\":5},\"name\":\"kallax\",\"readinessProbe\":{\"exec\":{\"command\":[\"/bin/bash\",\"-c\",\"ps
+      aux | grep -v grep | grep 'python bot.py' \\u0026\\u0026 test -f /app/data/kallax.db\"]},\"failureThreshold\":5,\"initialDelaySeconds\":60,\"periodSeconds\":15,\"timeoutSeconds\":5},\"resources\":{\"limits\":{\"cpu\":\"500m\",\"memory\":\"512Mi\"},\"requests\":{\"cpu\":\"100m\",\"memory\":\"256Mi\"}},\"volumeMounts\":[{\"mountPath\":\"/app/data\",\"name\":\"data-volume\"}],\"workingDir\":\"/app\"}],\"restartPolicy\":\"Always\",\"terminationGracePeriodSeconds\":30,\"volumes\":[{\"name\":\"data-volume\",\"persistentVolumeClaim\":{\"claimName\":\"kallax-data\"}}]}}}}\n"
+  creationTimestamp: "2025-08-09T15:51:49Z"
+  generation: 5
+  labels:
+    app: kallax
+    component: discord-bot
+    version: v1.0.0
+  name: kallax
+  namespace: gamer-gambit
+  resourceVersion: "11063325"
+  uid: 5fda5ee2-561b-46f8-a649-9a1a3b1b4e0f
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: kallax
+      component: discord-bot
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2025-08-09T14:50:56-04:00"
+      creationTimestamp: null
+      labels:
+        app: kallax
+        component: discord-bot
+        version: v1.0.0
+    spec:
+      containers:
+      - command:
+        - /bin/bash
+        - -c
+        - "echo \"\U0001F3B2 Setting up Kallax - Your Gaming Companion Bot\"\necho
+          \"Installing system dependencies...\"\napt-get update && apt-get install
+          -y git\n\necho \"Installing Python dependencies...\"\ncat > /app/requirements.txt
+          << 'EOF'\ndiscord.py>=2.3.0\naiohttp>=3.8.0\naiosqlite>=0.19.0\npython-dotenv>=1.0.0\nbeautifulsoup4>=4.12.0\npillow>=10.0.0\nrequests>=2.31.0\nxmltodict>=0.13.0\nEOF\npip
+          install --no-cache-dir -r /app/requirements.txt\n\necho \"Creating full-featured
+          Kallax bot...\"\n\n# Create utils directory and database module\nmkdir -p
+          /app/utils /app/cogs\n\n# Database utility\ncat > /app/utils/database.py
+          << 'DBEOF'\nimport aiosqlite\nimport logging\nfrom pathlib import Path\nfrom
+          typing import Optional, List, Dict, Any\n\nlogger = logging.getLogger(__name__)\n\nclass
+          Database:\n    def __init__(self, db_path: str):\n        self.db_path =
+          db_path\n        self.connection: Optional[aiosqlite.Connection] = None\n
+          \       \n    async def initialize(self):\n        db_dir = Path(self.db_path).parent\n
+          \       db_dir.mkdir(parents=True, exist_ok=True)\n        \n        self.connection
+          = await aiosqlite.connect(self.db_path)\n        await self._create_tables()\n
+          \       logger.info(f\"Database initialized at {self.db_path}\")\n        \n
+          \   async def _create_tables(self):\n        await self.connection.executescript(\"\"\"\n
+          \           CREATE TABLE IF NOT EXISTS user_profiles (\n                discord_id
+          INTEGER PRIMARY KEY,\n                bgg_username TEXT,\n                steam_id
+          TEXT,\n                xbox_gamertag TEXT,\n                weekly_stats_enabled
+          BOOLEAN DEFAULT FALSE,\n                weekly_stats_channel_id INTEGER,\n
+          \               created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n                updated_at
+          TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n            );\n            \n            CREATE
+          TABLE IF NOT EXISTS game_cache (\n                bgg_id INTEGER PRIMARY
+          KEY,\n                name TEXT NOT NULL,\n                year_published
+          INTEGER,\n                image_url TEXT,\n                thumbnail_url
+          TEXT,\n                description TEXT,\n                min_players INTEGER,\n
+          \               max_players INTEGER,\n                playing_time INTEGER,\n
+          \               min_playtime INTEGER,\n                max_playtime INTEGER,\n
+          \               min_age INTEGER,\n                rating REAL,\n                rating_count
+          INTEGER,\n                weight REAL,\n                cached_at TIMESTAMP
+          DEFAULT CURRENT_TIMESTAMP\n            );\n            \n            CREATE
+          INDEX IF NOT EXISTS idx_user_profiles_bgg_username ON user_profiles(bgg_username);\n
+          \       \"\"\")\n        await self.connection.commit()\n        \n    async
+          def close(self):\n        if self.connection:\n            await self.connection.close()\n
+          \           \n    async def get_user_profile(self, discord_id: int) -> Optional[Dict[str,
+          Any]]:\n        cursor = await self.connection.execute(\n            \"SELECT
+          * FROM user_profiles WHERE discord_id = ?\", \n            (discord_id,)\n
+          \       )\n        row = await cursor.fetchone()\n        if row:\n            columns
+          = [description[0] for description in cursor.description]\n            return
+          dict(zip(columns, row))\n        return None\n        \n    async def create_user_profile(self,
+          discord_id: int, **kwargs) -> bool:\n        try:\n            await self.connection.execute(\"\"\"\n
+          \               INSERT OR REPLACE INTO user_profiles \n                (discord_id,
+          bgg_username, steam_id, xbox_gamertag, weekly_stats_enabled, weekly_stats_channel_id,
+          updated_at)\n                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)\n
+          \           \"\"\", (\n                discord_id,\n                kwargs.get('bgg_username'),\n
+          \               kwargs.get('steam_id'),\n                kwargs.get('xbox_gamertag'),\n
+          \               kwargs.get('weekly_stats_enabled', False),\n                kwargs.get('weekly_stats_channel_id')\n
+          \           ))\n            await self.connection.commit()\n            return
+          True\n        except Exception as e:\n            logger.error(f\"Error
+          creating user profile: {e}\")\n            return False\n            \n
+          \   async def cache_game(self, game_data: Dict[str, Any]) -> bool:\n        try:\n
+          \           await self.connection.execute(\"\"\"\n                INSERT
+          OR REPLACE INTO game_cache \n                (bgg_id, name, year_published,
+          image_url, thumbnail_url, description, \n                 min_players, max_players,
+          playing_time, min_playtime, max_playtime, \n                 min_age, rating,
+          rating_count, weight, cached_at)\n                VALUES (?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)\n            \"\"\", (\n
+          \               game_data.get('bgg_id'),\n                game_data.get('name'),\n
+          \               game_data.get('year_published'),\n                game_data.get('image_url'),\n
+          \               game_data.get('thumbnail_url'),\n                game_data.get('description'),\n
+          \               game_data.get('min_players'),\n                game_data.get('max_players'),\n
+          \               game_data.get('playing_time'),\n                game_data.get('min_playtime'),\n
+          \               game_data.get('max_playtime'),\n                game_data.get('min_age'),\n
+          \               game_data.get('rating'),\n                game_data.get('rating_count'),\n
+          \               game_data.get('weight')\n            ))\n            await
+          self.connection.commit()\n            return True\n        except Exception
+          as e:\n            logger.error(f\"Error caching game: {e}\")\n            return
+          False\nDBEOF\n\n# BGG API Client\ncat > /app/utils/bgg_api.py << 'BGGEOF'\nimport
+          asyncio\nimport logging\nimport re\nfrom typing import Dict, List, Optional,
+          Any\n\nimport aiohttp\nimport xmltodict\nfrom bs4 import BeautifulSoup\n\nlogger
+          = logging.getLogger(__name__)\n\nclass BGGApiClient:\n    BASE_URL = \"https://boardgamegeek.com/xmlapi2\"\n
+          \   \n    def __init__(self):\n        self.session: Optional[aiohttp.ClientSession]
+          = None\n        \n    async def __aenter__(self):\n        self.session
+          = aiohttp.ClientSession()\n        return self\n        \n    async def
+          __aexit__(self, exc_type, exc_val, exc_tb):\n        if self.session:\n
+          \           await self.session.close()\n            \n    async def _make_request(self,
+          endpoint: str, params: Dict[str, Any] = None) -> Optional[Dict]:\n        if
+          not self.session:\n            raise RuntimeError(\"Client must be used
+          as async context manager\")\n            \n        url = f\"{self.BASE_URL}/{endpoint}\"\n
+          \       max_retries = 3\n        retry_delay = 2\n        \n        for
+          attempt in range(max_retries):\n            try:\n                async
+          with self.session.get(url, params=params) as response:\n                    if
+          response.status == 202:\n                        logger.info(f\"BGG API
+          processing request, waiting {retry_delay}s...\")\n                        await
+          asyncio.sleep(retry_delay)\n                        retry_delay *= 2\n                        continue\n
+          \                       \n                    if response.status == 200:\n
+          \                       content = await response.text()\n                        return
+          xmltodict.parse(content)\n                        \n                    logger.warning(f\"BGG
+          API returned status {response.status}\")\n                    \n            except
+          Exception as e:\n                logger.error(f\"Error making BGG API request:
+          {e}\")\n                \n            if attempt < max_retries - 1:\n                await
+          asyncio.sleep(retry_delay)\n                retry_delay *= 2\n                \n
+          \       return None\n    \n    async def search_games(self, query: str,
+          exact: bool = False) -> List[Dict[str, Any]]:\n        params = {\n            'query':
+          query,\n            'type': 'boardgame',\n        }\n        if exact:\n
+          \           params['exact'] = '1'\n            \n        data = await self._make_request('search',
+          params)\n        if not data or 'items' not in data:\n            return
+          []\n            \n        items = data['items']\n        if not items or
+          'item' not in items:\n            return []\n            \n        game_items
+          = items['item']\n        if not isinstance(game_items, list):\n            game_items
+          = [game_items]\n            \n        results = []\n        for item in
+          game_items:\n            if isinstance(item, dict):\n                result
+          = {\n                    'bgg_id': int(item.get('@id', 0)),\n                    'name':
+          item.get('name', {}).get('@value', 'Unknown'),\n                    'year_published':
+          item.get('yearpublished', {}).get('@value'),\n                }\n                if
+          result['bgg_id']:\n                    results.append(result)\n                    \n
+          \       return results\n    \n    async def get_game_details(self, game_ids:
+          List[int]) -> List[Dict[str, Any]]:\n        if not game_ids:\n            return
+          []\n            \n        ids_str = ','.join(map(str, game_ids))\n        params
+          = {\n            'id': ids_str,\n            'stats': '1',\n        }\n
+          \       \n        data = await self._make_request('thing', params)\n        if
+          not data or 'items' not in data:\n            return []\n            \n
+          \       items = data['items']\n        if not items or 'item' not in items:\n
+          \           return []\n            \n        game_items = items['item']\n
+          \       if not isinstance(game_items, list):\n            game_items = [game_items]\n
+          \           \n        results = []\n        for item in game_items:\n            if
+          not isinstance(item, dict):\n                continue\n                \n
+          \           try:\n                game_data = self._parse_game_item(item)\n
+          \               if game_data:\n                    results.append(game_data)\n
+          \           except Exception as e:\n                logger.error(f\"Error
+          parsing game item: {e}\")\n                \n        return results\n    \n
+          \   def _parse_game_item(self, item: Dict) -> Optional[Dict[str, Any]]:\n
+          \       try:\n            bgg_id = int(item.get('@id', 0))\n            if
+          not bgg_id:\n                return None\n                \n            names
+          = item.get('name', [])\n            if not isinstance(names, list):\n                names
+          = [names]\n                \n            primary_name = None\n            for
+          name in names:\n                if isinstance(name, dict) and name.get('@type')
+          == 'primary':\n                    primary_name = name.get('@value')\n                    break\n
+          \                   \n            if not primary_name and names:\n                primary_name
+          = names[0].get('@value') if isinstance(names[0], dict) else str(names[0])\n
+          \               \n            description = item.get('description', '')\n
+          \           if description:\n                soup = BeautifulSoup(description,
+          'html.parser')\n                description = re.sub(r'\\s+', ' ', soup.get_text()).strip()\n
+          \               \n            stats = item.get('statistics', {}).get('ratings',
+          {})\n            \n            return {\n                'bgg_id': bgg_id,\n
+          \               'name': primary_name or 'Unknown Game',\n                'year_published':
+          self._safe_int(item.get('yearpublished', {}).get('@value')),\n                'image_url':
+          item.get('image'),\n                'thumbnail_url': item.get('thumbnail'),\n
+          \               'description': description[:1000] if description else None,\n
+          \               'min_players': self._safe_int(item.get('minplayers', {}).get('@value')),\n
+          \               'max_players': self._safe_int(item.get('maxplayers', {}).get('@value')),\n
+          \               'playing_time': self._safe_int(item.get('playingtime', {}).get('@value')),\n
+          \               'min_playtime': self._safe_int(item.get('minplaytime', {}).get('@value')),\n
+          \               'max_playtime': self._safe_int(item.get('maxplaytime', {}).get('@value')),\n
+          \               'min_age': self._safe_int(item.get('minage', {}).get('@value')),\n
+          \               'rating': self._safe_float(stats.get('average', {}).get('@value')),\n
+          \               'rating_count': self._safe_int(stats.get('usersrated', {}).get('@value')),\n
+          \               'weight': self._safe_float(stats.get('averageweight', {}).get('@value')),\n
+          \           }\n        except Exception as e:\n            logger.error(f\"Error
+          parsing game item: {e}\")\n            return None\n    \n    @staticmethod\n
+          \   def _safe_int(value) -> Optional[int]:\n        if value is None or
+          value == '':\n            return None\n        try:\n            return
+          int(float(value))\n        except (ValueError, TypeError):\n            return
+          None\n    \n    @staticmethod\n    def _safe_float(value) -> Optional[float]:\n
+          \       if value is None or value == '':\n            return None\n        try:\n
+          \           return float(value)\n        except (ValueError, TypeError):\n
+          \           return None\nBGGEOF\n\n# Game Search Cog\ncat > /app/cogs/game_search.py
+          << 'GSEOF'\nimport discord\nfrom discord.ext import commands\nimport asyncio\nimport
+          logging\nfrom typing import List, Dict, Any\n\nimport sys\nsys.path.append('/app')\nfrom
+          utils.bgg_api import BGGApiClient\n\nlogger = logging.getLogger(__name__)\n\nclass
+          GameSearchCog(commands.Cog):\n    def __init__(self, bot):\n        self.bot
+          = bot\n        \n    @commands.command(name='search', aliases=['find', 'game'])\n
+          \   @commands.cooldown(1, 5, commands.BucketType.user)\n    async def search_game(self,
+          ctx, *, query: str):\n        \"\"\"Search for board games on BoardGameGeek\"\"\"\n
+          \       if not query or len(query.strip()) < 2:\n            await ctx.send(\"❌
+          Please provide a game name to search for (at least 2 characters)\")\n            return\n
+          \           \n        async with ctx.typing():\n            try:\n                async
+          with BGGApiClient() as bgg:\n                    search_results = await
+          bgg.search_games(query.strip())\n                    \n                    if
+          not search_results:\n                        await ctx.send(f\"❌ No games
+          found matching '{query}'\")\n                        return\n                        \n
+          \                   search_results = search_results[:10]\n                    \n
+          \                   if len(search_results) == 1:\n                        await
+          self._show_game_details(ctx, search_results[0]['bgg_id'])\n                        return\n
+          \                       \n                    await self._show_search_results(ctx,
+          search_results, query)\n                    \n            except Exception
+          as e:\n                logger.error(f\"Error searching for games: {e}\")\n
+          \               await ctx.send(\"❌ An error occurred while searching. Please
+          try again.\")\n    \n    async def _show_search_results(self, ctx, results:
+          List[Dict[str, Any]], original_query: str):\n        number_emojis = ['1️⃣',
+          '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '\U0001F51F']\n
+          \       \n        embed = discord.Embed(\n            title=f\"\U0001F3B2
+          Search Results for '{original_query}'\",\n            description=\"React
+          with a number to see detailed information about that game.\",\n            color=discord.Color.blue()\n
+          \       )\n        \n        for i, game in enumerate(results[:10]):\n            year_str
+          = f\" ({game['year_published']})\" if game['year_published'] else \"\"\n
+          \           embed.add_field(\n                name=f\"{number_emojis[i]}
+          {game['name']}{year_str}\",\n                value=f\"BGG ID: {game['bgg_id']}\",\n
+          \               inline=False\n            )\n            \n        embed.set_footer(text=\"React
+          within 60 seconds to select a game\")\n        \n        message = await
+          ctx.send(embed=embed)\n        \n        for i in range(min(len(results),
+          10)):\n            await message.add_reaction(number_emojis[i])\n            \n
+          \       def check(reaction, user):\n            return (\n                user
+          == ctx.author and\n                reaction.message.id == message.id and\n
+          \               str(reaction.emoji) in number_emojis[:len(results)]\n            )\n
+          \           \n        try:\n            reaction, user = await self.bot.wait_for('reaction_add',
+          timeout=60.0, check=check)\n            \n            selected_index = number_emojis.index(str(reaction.emoji))\n
+          \           selected_game = results[selected_index]\n            \n            await
+          self._show_game_details(ctx, selected_game['bgg_id'])\n            \n        except
+          asyncio.TimeoutError:\n            try:\n                await message.clear_reactions()\n
+          \               embed.set_footer(text=\"Selection timed out\")\n                await
+          message.edit(embed=embed)\n            except discord.NotFound:\n                pass\n
+          \               \n    async def _show_game_details(self, ctx, game_id: int):\n
+          \       async with ctx.typing():\n            try:\n                async
+          with BGGApiClient() as bgg:\n                    games = await bgg.get_game_details([game_id])\n
+          \                   \n                    if not games:\n                        await
+          ctx.send(\"❌ Could not retrieve game details.\")\n                        return\n
+          \                       \n                    game = games[0]\n                    \n
+          \                   # Cache the game data\n                    await self.bot.database.cache_game(game)\n
+          \                   \n                    embed = await self._create_game_embed(game)\n
+          \                   await ctx.send(embed=embed)\n                    \n
+          \           except Exception as e:\n                logger.error(f\"Error
+          getting game details: {e}\")\n                await ctx.send(\"❌ An error
+          occurred while getting game details.\")\n                \n    async def
+          _create_game_embed(self, game: Dict[str, Any]) -> discord.Embed:\n        embed
+          = discord.Embed(\n            title=game['name'],\n            url=f\"https://boardgamegeek.com/boardgame/{game['bgg_id']}\",\n
+          \           color=discord.Color.green()\n        )\n        \n        if
+          game.get('thumbnail_url'):\n            embed.set_thumbnail(url=game['thumbnail_url'])\n
+          \           \n        if game.get('image_url'):\n            embed.set_image(url=game['image_url'])\n
+          \           \n        info_lines = []\n        if game.get('year_published'):\n
+          \           info_lines.append(f\"**Year:** {game['year_published']}\")\n
+          \           \n        if game.get('min_players') and game.get('max_players'):\n
+          \           if game['min_players'] == game['max_players']:\n                info_lines.append(f\"**Players:**
+          {game['min_players']}\")\n            else:\n                info_lines.append(f\"**Players:**
+          {game['min_players']} - {game['max_players']}\")\n                \n        if
+          game.get('playing_time'):\n            info_lines.append(f\"**Play Time:**
+          {game['playing_time']} min\")\n        elif game.get('min_playtime') and
+          game.get('max_playtime'):\n            info_lines.append(f\"**Play Time:**
+          {game['min_playtime']} - {game['max_playtime']} min\")\n            \n        if
+          game.get('min_age'):\n            info_lines.append(f\"**Min Age:** {game['min_age']}+\")\n
+          \           \n        if info_lines:\n            embed.add_field(name=\"\U0001F4CB
+          Game Info\", value=\"\\n\".join(info_lines), inline=True)\n            \n
+          \       rating_lines = []\n        if game.get('rating'):\n            rating_lines.append(f\"**BGG
+          Rating:** {game['rating']:.1f}/10\")\n            \n        if game.get('rating_count'):\n
+          \           rating_lines.append(f\"**Ratings:** {game['rating_count']:,}\")\n
+          \           \n        if game.get('weight'):\n            weight_desc =
+          self._get_weight_description(game['weight'])\n            rating_lines.append(f\"**Complexity:**
+          {game['weight']:.1f}/5 ({weight_desc})\")\n            \n        if rating_lines:\n
+          \           embed.add_field(name=\"⭐ Ratings\", value=\"\\n\".join(rating_lines),
+          inline=True)\n        \n        if game.get('description'):\n            desc
+          = game['description']\n            if len(desc) > 300:\n                desc
+          = desc[:297] + \"...\"\n            embed.add_field(name=\"\U0001F4D6 Description\",
+          value=desc, inline=False)\n            \n        embed.set_footer(\n            text=f\"BGG
+          ID: {game['bgg_id']} | Kallax Gaming Bot\",\n            icon_url=\"https://cf.geekdo-static.com/images/logos/navbar-logo-bgg-b2.svg\"\n
+          \       )\n        \n        return embed\n    \n    @staticmethod\n    def
+          _get_weight_description(weight: float) -> str:\n        if weight < 1.5:\n
+          \           return \"Light\"\n        elif weight < 2.5:\n            return
+          \"Light-Medium\"\n        elif weight < 3.5:\n            return \"Medium\"\n
+          \       elif weight < 4.5:\n            return \"Medium-Heavy\"\n        else:\n
+          \           return \"Heavy\"\n            \n    @commands.command(name='random',
+          aliases=['rand'])\n    @commands.cooldown(1, 10, commands.BucketType.user)\n
+          \   async def random_game(self, ctx):\n        \"\"\"Get a random popular
+          board game\"\"\"\n        async with ctx.typing():\n            try:\n                import
+          random\n                popular_game_ids = [\n                    174430,
+          \ # Gloomhaven\n                    12333,   # Twilight Struggle\n                    167791,
+          \ # Terraforming Mars\n                    220308,  # Gaia Project\n                    161936,
+          \ # Pandemic Legacy: Season 1\n                    224517,  # Brass: Birmingham\n
+          \                   266192,  # Wingspan\n                    162886,  #
+          Spirit Island\n                    246900,  # Root\n                    299006,
+          \ # Barrage\n                ]\n                \n                selected_id
+          = random.choice(popular_game_ids)\n                await self._show_game_details(ctx,
+          selected_id)\n                \n            except Exception as e:\n                logger.error(f\"Error
+          getting random game: {e}\")\n                await ctx.send(\"❌ An error
+          occurred while finding a random game.\")\n\nasync def setup(bot):\n    await
+          bot.add_cog(GameSearchCog(bot))\nGSEOF\n\n# Main bot file\ncat > /app/bot.py
+          << 'BOTEOF'\nimport asyncio\nimport logging\nimport os\nfrom pathlib import
+          Path\n\nimport discord\nfrom discord.ext import commands\nfrom dotenv import
+          load_dotenv\n\nfrom utils.database import Database\n\nload_dotenv()\n\nlogging.basicConfig(\n
+          \   level=logging.INFO,\n    format='%(asctime)s - %(name)s - %(levelname)s
+          - %(message)s',\n    handlers=[\n        logging.StreamHandler()\n    ]\n)\n\nlogger
+          = logging.getLogger(__name__)\n\nclass KallaxBot(commands.Bot):\n    def
+          __init__(self):\n        intents = discord.Intents.default()\n        intents.message_content
+          = True\n        intents.guilds = True\n        intents.members = True\n
+          \       \n        super().__init__(\n            command_prefix=os.getenv('COMMAND_PREFIX',
+          '!'),\n            intents=intents,\n            description=\"Kallax -
+          Your Gaming Companion Bot\"\n        )\n        \n        self.database
+          = None\n        \n    async def setup_hook(self):\n        db_path = os.getenv('DATABASE_PATH',
+          '/app/data/kallax.db')\n        self.database = Database(db_path)\n        await
+          self.database.initialize()\n        \n        await self.load_cogs()\n        \n
+          \       logger.info(\"Bot setup completed successfully\")\n        \n    async
+          def load_cogs(self):\n        cogs_dir = Path(__file__).parent / 'cogs'\n
+          \       \n        for cog_file in cogs_dir.glob('*.py'):\n            if
+          cog_file.name.startswith('_'):\n                continue\n                \n
+          \           cog_name = f'cogs.{cog_file.stem}'\n            try:\n                await
+          self.load_extension(cog_name)\n                logger.info(f\"Loaded cog:
+          {cog_name}\")\n            except Exception as e:\n                logger.error(f\"Failed
+          to load cog {cog_name}: {e}\")\n                \n    async def on_ready(self):\n
+          \       logger.info(f'\U0001F3B2 {self.user} has connected to Discord!')\n
+          \       logger.info(f'\U0001F3AE Bot is in {len(self.guilds)} guilds')\n
+          \       logger.info(f'\U0001F4CA Loaded {len(self.cogs)} cogs')\n        \n
+          \       activity = discord.Game(name=\"Board Games | !search <game>\")\n
+          \       await self.change_presence(activity=activity)\n        \n        #
+          Log some stats\n        total_members = sum(guild.member_count for guild
+          in self.guilds)\n        logger.info(f'\U0001F465 Serving {total_members}
+          members across {len(self.guilds)} servers')\n        \n    async def on_command_error(self,
+          ctx, error):\n        if isinstance(error, commands.CommandNotFound):\n
+          \           return\n        elif isinstance(error, commands.MissingRequiredArgument):\n
+          \           await ctx.send(f\"❌ Missing required argument: {error.param}\")\n
+          \       elif isinstance(error, commands.CommandOnCooldown):\n            await
+          ctx.send(f\"⏰ Command on cooldown. Try again in {error.retry_after:.2f}
+          seconds.\")\n        else:\n            logger.error(f\"Command error: {error}\")\n
+          \           await ctx.send(\"❌ An unexpected error occurred. Please try
+          again.\")\n            \n    @commands.command(name='status')\n    async
+          def status_command(self, ctx):\n        \"\"\"Show bot status and statistics\"\"\"\n
+          \       embed = discord.Embed(\n            title=\"\U0001F3B2 Kallax Bot
+          Status\",\n            color=discord.Color.green()\n        )\n        \n
+          \       embed.add_field(name=\"\U0001F7E2 Status\", value=\"Online & Ready\",
+          inline=True)\n        embed.add_field(name=\"\U0001F3E0 Servers\", value=len(self.guilds),
+          inline=True)\n        embed.add_field(name=\"\U0001F465 Members\", value=sum(g.member_count
+          for g in self.guilds), inline=True)\n        embed.add_field(name=\"\U0001F527
+          Cogs Loaded\", value=len(self.cogs), inline=True)\n        embed.add_field(name=\"\U0001F4C8
+          Uptime\", value=\"Recently started\", inline=True)\n        embed.add_field(name=\"\U0001F3AE
+          Features\", value=\"Game Search, BGG Integration\", inline=True)\n        \n
+          \       embed.set_footer(text=\"Kallax - Your Gaming Companion Bot\")\n
+          \       await ctx.send(embed=embed)\n\nasync def main():\n    token = os.getenv('DISCORD_TOKEN')\n
+          \   if not token:\n        logger.error(\"DISCORD_TOKEN not found in environment
+          variables\")\n        return\n        \n    bot = KallaxBot()\n    \n    try:\n
+          \       await bot.start(token)\n    except KeyboardInterrupt:\n        logger.info(\"Bot
+          shutdown requested\")\n    finally:\n        if bot.database:\n            await
+          bot.database.close()\n        await bot.close()\n\nif __name__ == \"__main__\":\n
+          \   asyncio.run(main())\nBOTEOF\n\necho \"\U0001F680 Starting full-featured
+          Kallax Discord Bot...\"\npython bot.py\n"
+        env:
+        - name: DISCORD_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: DISCORD_TOKEN
+              name: kallax-config
+        - name: DISCORD_GUILD_ID
+          valueFrom:
+            secretKeyRef:
+              key: DISCORD_GUILD_ID
+              name: kallax-config
+              optional: true
+        - name: DATABASE_PATH
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_PATH
+              name: kallax-config
+        - name: BGG_API_BASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: BGG_API_BASE_URL
+              name: kallax-config
+        - name: COMMAND_PREFIX
+          valueFrom:
+            secretKeyRef:
+              key: COMMAND_PREFIX
+              name: kallax-config
+        - name: DEFAULT_WEEKLY_STATS_CHANNEL
+          valueFrom:
+            secretKeyRef:
+              key: DEFAULT_WEEKLY_STATS_CHANNEL
+              name: kallax-config
+        - name: STEAM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: STEAM_API_KEY
+              name: kallax-api-keys
+              optional: true
+        - name: XBOX_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: XBOX_API_KEY
+              name: kallax-api-keys
+              optional: true
+        image: python:3.11-slim
+        imagePullPolicy: Always
+        livenessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - ps aux | grep -v grep | grep 'python bot.py'
+          failureThreshold: 3
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: kallax
+        readinessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - ps aux | grep -v grep | grep 'python bot.py' && test -f /app/data/kallax.db
+          failureThreshold: 5
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /app/data
+          name: data-volume
+        workingDir: /app
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: kallax-data
+status:
+  conditions:
+  - lastTransitionTime: "2025-08-09T15:51:49Z"
+    lastUpdateTime: "2025-08-09T15:51:49Z"
+    message: Deployment does not have minimum availability.
+    reason: MinimumReplicasUnavailable
+    status: "False"
+    type: Available
+  - lastTransitionTime: "2025-08-09T18:43:02Z"
+    lastUpdateTime: "2025-08-09T19:01:20Z"
+    message: ReplicaSet "kallax-8464fbd6c" is progressing.
+    reason: ReplicaSetUpdated
+    status: "True"
+    type: Progressing
+  observedGeneration: 5
+  replicas: 1
+  unavailableReplicas: 1
+  updatedReplicas: 1

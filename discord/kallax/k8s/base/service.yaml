@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kallax
+  namespace: gamer-gambit
+  labels:
+    app: kallax
+    component: discord-bot
+spec:
+  type: ClusterIP
+  ports:
+  # Discord bots don't typically expose ports, but this could be used for health monitoring
+  - port: 8080
+    targetPort: 8080
+    name: health
+    protocol: TCP
+  selector:
+    app: kallax
+    component: discord-bot
+---
+# Optional: ServiceMonitor for Prometheus monitoring (if using Prometheus)
+# apiVersion: monitoring.coreos.com/v1
+# kind: ServiceMonitor
+# metadata:
+#   name: kallax
+#   namespace: gamer-gambit
+#   labels:
+#     app: kallax
+# spec:
+#   selector:
+#     matchLabels:
+#       app: kallax
+#   endpoints:
+#   - port: health
+#     interval: 30s
+#     path: /health

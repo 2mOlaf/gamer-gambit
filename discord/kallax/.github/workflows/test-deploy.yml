@@ -1,0 +1,55 @@
+name: Test Environment Deployment
+
+on:
+  push:
+    branches: [ develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: kallax-discord-bot-test
+
+jobs:
+  deploy-test:
+    runs-on: self-hosted
+    if: github.ref == 'refs/heads/develop' || github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup test environment
+      run: |
+        echo "🧪 Setting up test environment..."
+        # Create test namespace if it doesn't exist
+        kubectl create namespace gamer-gambit-test --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Deploy to test
+      run: |
+        echo "🚀 Deploying to test environment..."
+        # Apply test configuration using kustomize
+        kubectl apply -k k8s/environments/test/ || echo "Creating test deployment..."
+
+    - name: Verify test deployment
+      run: |
+        echo "✅ Verifying test deployment..."
+        kubectl get pods -n gamer-gambit-test -l app=kallax-test
+        kubectl rollout status deployment/test-kallax -n gamer-gambit-test --timeout=180s || true
+
+    - name: Run basic tests
+      run: |
+        echo "🔍 Running basic connectivity tests..."
+        # Wait for pod to be ready
+        sleep 30
+        kubectl logs -n gamer-gambit-test deployment/test-kallax --tail=10 || echo "Logs not available yet"
+
+  cleanup-pr:
+    runs-on: self-hosted
+    if: github.event.action == 'closed' && github.event.pull_request
+    steps:
+    - name: Cleanup PR environment
+      run: |
+        echo "🧹 Cleaning up PR test environment..."
+        kubectl delete deployment test-kallax -n gamer-gambit-test || true

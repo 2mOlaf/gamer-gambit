@@ -1,0 +1,57 @@
+name: Production Deployment
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deployment even if no changes'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: kallax-discord-bot
+
+jobs:
+  deploy-production:
+    runs-on: self-hosted
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Log deployment start
+      run: |
+        echo "🚀 Starting production deployment for Kallax bot..."
+        echo "Commit: ${{ github.sha }}"
+        echo "Author: ${{ github.actor }}"
+
+    - name: Trigger Kubernetes deployment
+      run: |
+        echo "🔄 Triggering production pod restart..."
+        kubectl rollout restart deployment/kallax -n gamer-gambit
+        kubectl rollout status deployment/kallax -n gamer-gambit --timeout=300s
+
+    - name: Verify deployment
+      run: |
+        echo "✅ Verifying deployment..."
+        kubectl get pods -n gamer-gambit -l app=kallax
+        kubectl logs -n gamer-gambit deployment/kallax --tail=20
+
+    - name: Notify deployment success
+      if: success()
+      run: |
+        echo "🎉 Production deployment successful!"
+        echo "Kallax bot is now running the latest code from main branch"
+
+    - name: Notify deployment failure
+      if: failure()
+      run: |
+        echo "❌ Production deployment failed!"
+        echo "Check the logs and fix any issues"
