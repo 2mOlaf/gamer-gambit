@@ -1,0 +1,283 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kallax
+  namespace: gamer-gambit
+  labels:
+    app: kallax
+    component: discord-bot
+    version: v2.0.0-slash
+spec:
+  replicas: 1  # Discord bots should typically run as single instance
+  strategy:
+    type: Recreate  # Ensure only one instance runs at a time
+  selector:
+    matchLabels:
+      app: kallax
+      component: discord-bot
+  template:
+    metadata:
+      labels:
+        app: kallax
+        component: discord-bot
+        version: v2.0.0-slash
+    spec:
+      containers:
+      - name: kallax
+        image: python:3.11-slim
+        imagePullPolicy: Always
+        workingDir: /app
+        command:
+          - /bin/bash
+          - -c
+          - |
+            echo "🎲 Setting up Kallax - Your Gaming Companion Bot with Slash Commands"
+            echo ""
+
+            # Install system dependencies
+            echo "Installing system dependencies..."
+            apt-get update && apt-get install -y git
+
+            # Install Python dependencies
+            echo "Installing Python dependencies..."
+            cat > /app/requirements.txt << 'EOF'
+            discord.py>=2.3.0
+            aiohttp>=3.8.0
+            aiosqlite>=0.19.0
+            python-dotenv>=1.0.0
+            beautifulsoup4>=4.12.0
+            pillow>=10.0.0
+            requests>=2.31.0
+            xmltodict>=0.13.0
+            EOF
+            pip install --no-cache-dir -r /app/requirements.txt
+
+            # Create directory structure
+            mkdir -p /app/cogs /app/utils
+
+            # Create utils package init
+            cat > /app/utils/__init__.py << 'EOF'
+            # Utils package
+            EOF
+
+            echo "🚀 Starting Kallax Discord Bot with Slash Commands..."
+            echo "✨ Available slash commands:"
+            echo "   /gg-search <game> - Search for board games"
+            echo "   /gg-random - Get a random popular game"
+            echo "   /gg-profile - Show your gaming profile"
+            echo "   /gg-profile-set <platform> <username> - Set platform username"
+            echo "   /gg-profile-show <user> - Show user's profile"
+            echo "   /gg-collection <username> <type> - Show BGG collection"
+            echo "   /gg-plays <username> <limit> - Show recent plays"
+            echo ""
+            
+            # Clone the latest source code from GitHub
+            echo "📥 Cloning source code from GitHub..."
+            if git clone "$GITHUB_REPO" /tmp/source; then
+                echo "✅ Successfully cloned repository"
+                if [ -d "/tmp/source/discord/kallax" ]; then
+                    echo "📁 Copying bot files..."
+                    cp -r /tmp/source/discord/kallax/* /app/
+                    echo "🎯 Using full bot functionality from GitHub"
+                else
+                    echo "❌ Expected directory structure not found in repository"
+                    echo "📋 Available directories:"
+                    ls -la /tmp/source/
+                    exit 1
+                fi
+            else
+                echo "❌ Failed to clone repository from GitHub"
+                echo "⚠️  Creating fallback bot structure..."
+                # Create basic bot structure for testing
+                cat > /app/bot.py << 'SIMPLE_BOT_EOF'
+            import asyncio
+            import logging
+            import os
+            import discord
+            from discord import app_commands
+            from discord.ext import commands
+            from dotenv import load_dotenv
+
+            load_dotenv()
+
+            logging.basicConfig(
+                level=logging.INFO,
+                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+
+            logger = logging.getLogger(__name__)
+
+            class KallaxBot(commands.Bot):
+                def __init__(self):
+                    intents = discord.Intents.default()
+                    intents.message_content = True
+                    intents.guilds = True
+                    
+                    super().__init__(
+                        command_prefix=os.getenv('COMMAND_PREFIX', '!'),
+                        intents=intents,
+                        description="Kallax - Your Gaming Companion Bot with Slash Commands"
+                    )
+                    
+                    self.synced = False
+                    
+                async def on_ready(self):
+                    logger.info(f'{self.user} has connected to Discord!')
+                    logger.info(f'Bot is in {len(self.guilds)} guilds')
+                    
+                    # Sync slash commands (only once)
+                    if not self.synced:
+                        try:
+                            synced = await self.tree.sync()
+                            logger.info(f"Synced {len(synced)} slash command(s)")
+                            self.synced = True
+                        except Exception as e:
+                            logger.error(f"Failed to sync commands: {e}")
+                    
+                    activity = discord.Game(name="Board Games | /gg-search <game>")
+                    await self.change_presence(activity=activity)
+
+            bot = KallaxBot()
+
+            @bot.tree.command(name='gg-hello', description='Say hello with slash commands!')
+            async def hello(interaction: discord.Interaction):
+                await interaction.response.send_message(
+                    "🎲 Hello! I'm Kallax, your gaming companion bot!\n"
+                    "✨ I now use **slash commands** with the `gg-` prefix!\n\n"
+                    "📋 **OAuth Update Required:**\n"
+                    "To use slash commands, please update your bot's OAuth scopes to include:\n"
+                    "• `applications.commands`\n"
+                    "• `bot`\n\n"
+                    "🔧 **Coming Soon:**\n"
+                    "• /gg-search - Search board games\n"
+                    "• /gg-random - Random game\n"
+                    "• /gg-profile - Gaming profiles\n"
+                    "• /gg-collection - BGG collections\n"
+                    "• /gg-plays - Recent plays\n\n"
+                    "⚡ The bot is being updated with full functionality!"
+                )
+
+            @bot.tree.command(name='gg-test', description='Test slash command functionality')
+            async def test_command(interaction: discord.Interaction):
+                await interaction.response.send_message(
+                    "✅ Slash commands are working!\n"
+                    "🎯 The `gg-` prefix is active!\n"
+                    "🔄 Full bot functionality is being deployed..."
+                )
+
+            async def main():
+                token = os.getenv('DISCORD_TOKEN')
+                if not token:
+                    logger.error("DISCORD_TOKEN not found in environment variables")
+                    return
+                    
+                try:
+                    await bot.start(token)
+                except KeyboardInterrupt:
+                    logger.info("Bot shutdown requested")
+                finally:
+                    await bot.close()
+
+            if __name__ == "__main__":
+                asyncio.run(main())
+            SIMPLE_BOT_EOF
+            fi
+            
+            # Verify bot.py exists
+            if [ ! -f "/app/bot.py" ]; then
+                echo "❌ Critical Error: bot.py not found!"
+                echo "📋 Current directory contents:"
+                ls -la /app/
+                exit 1
+            fi
+            
+            echo "✅ Bot setup complete! Starting Kallax..."
+            echo "🎲 Bot file size: $(stat -f%z /app/bot.py 2>/dev/null || stat -c%s /app/bot.py) bytes"
+
+            # Run the bot
+            python bot.py
+        env:
+        # Load configuration from secrets
+        - name: DISCORD_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: kallax-config
+              key: DISCORD_TOKEN
+        - name: DISCORD_GUILD_ID
+          valueFrom:
+            secretKeyRef:
+              name: kallax-config
+              key: DISCORD_GUILD_ID
+              optional: true
+        - name: DATABASE_PATH
+          valueFrom:
+            secretKeyRef:
+              name: kallax-config
+              key: DATABASE_PATH
+        - name: BGG_API_BASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: kallax-config
+              key: BGG_API_BASE_URL
+        - name: COMMAND_PREFIX
+          valueFrom:
+            secretKeyRef:
+              name: kallax-config
+              key: COMMAND_PREFIX
+        - name: DEFAULT_WEEKLY_STATS_CHANNEL
+          valueFrom:
+            secretKeyRef:
+              name: kallax-config
+              key: DEFAULT_WEEKLY_STATS_CHANNEL
+        - name: STEAM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kallax-api-keys
+              key: STEAM_API_KEY
+              optional: true
+        - name: XBOX_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kallax-api-keys
+              key: XBOX_API_KEY
+              optional: true
+        - name: GITHUB_REPO
+          value: "https://github.com/2mOlaf/gamer-gambit.git"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: data-volume
+          mountPath: /app/data
+        # Health checks
+        livenessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - "ps aux | grep -v grep | grep 'python bot.py'"
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - "ps aux | grep -v grep | grep 'python bot.py' && test -f /app/data/kallax.db || true"
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 5
+      # Graceful shutdown
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: kallax-data
+      restartPolicy: Always

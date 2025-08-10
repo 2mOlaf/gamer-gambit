@@ -1,0 +1,381 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kallax
+  namespace: gamer-gambit
+  labels:
+    app: kallax
+    component: discord-bot
+    version: v2.0.0-slash
+spec:
+  replicas: 1  # Discord bots should typically run as single instance
+  strategy:
+    type: Recreate  # Ensure only one instance runs at a time
+  selector:
+    matchLabels:
+      app: kallax
+      component: discord-bot
+  template:
+    metadata:
+      labels:
+        app: kallax
+        component: discord-bot
+        version: v2.0.0-slash
+    spec:
+      containers:
+      - name: kallax
+        image: python:3.11-slim
+        imagePullPolicy: Always
+        workingDir: /app
+        command:
+          - /bin/bash
+          - -c
+          - |
+            echo "🎲 Setting up Kallax - Your Gaming Companion Bot with Slash Commands"
+            echo ""
+
+            # Install system dependencies
+            echo "Installing system dependencies..."
+            apt-get update && apt-get install -y git
+
+            # Install Python dependencies
+            echo "Installing Python dependencies..."
+            cat > /app/requirements.txt << 'EOF'
+            discord.py>=2.3.0
+            aiohttp>=3.8.0
+            aiosqlite>=0.19.0
+            python-dotenv>=1.0.0
+            beautifulsoup4>=4.12.0
+            pillow>=10.0.0
+            requests>=2.31.0
+            xmltodict>=0.13.0
+            EOF
+            pip install --no-cache-dir -r /app/requirements.txt
+
+            # Create directory structure
+            mkdir -p /app/cogs /app/utils
+
+            # Create database utility
+            cat > /app/utils/__init__.py << 'EOF'
+            # Utils package
+            EOF
+
+            cat > /app/utils/database.py << 'DBEOF'
+            import aiosqlite
+            import logging
+            from typing import Dict, Any, Optional
+
+            logger = logging.getLogger(__name__)
+
+            class Database:
+                def __init__(self, db_path: str):
+                    self.db_path = db_path
+                    
+                async def initialize(self):
+                    """Initialize database tables"""
+                    async with aiosqlite.connect(self.db_path) as db:
+                        # User profiles table
+                        await db.execute("""
+                            CREATE TABLE IF NOT EXISTS user_profiles (
+                                discord_id INTEGER PRIMARY KEY,
+                                bgg_username TEXT,
+                                steam_id TEXT,
+                                xbox_gamertag TEXT,
+                                weekly_stats_enabled BOOLEAN DEFAULT 1,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                            )
+                        """)
+                        
+                        # Game cache table
+                        await db.execute("""
+                            CREATE TABLE IF NOT EXISTS game_cache (
+                                bgg_id INTEGER PRIMARY KEY,
+                                name TEXT NOT NULL,
+                                year_published INTEGER,
+                                min_players INTEGER,
+                                max_players INTEGER,
+                                playing_time INTEGER,
+                                min_playtime INTEGER,
+                                max_playtime INTEGER,
+                                min_age INTEGER,
+                                description TEXT,
+                                image_url TEXT,
+                                thumbnail_url TEXT,
+                                rating REAL,
+                                rating_count INTEGER,
+                                weight REAL,
+                                cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                            )
+                        """)
+                        
+                        await db.commit()
+                        logger.info("Database initialized successfully")
+                        
+                async def get_user_profile(self, discord_id: int) -> Optional[Dict[str, Any]]:
+                    """Get user profile by Discord ID"""
+                    async with aiosqlite.connect(self.db_path) as db:
+                        db.row_factory = aiosqlite.Row
+                        cursor = await db.execute(
+                            "SELECT * FROM user_profiles WHERE discord_id = ?",
+                            (discord_id,)
+                        )
+                        row = await cursor.fetchone()
+                        return dict(row) if row else None
+                        
+                async def create_user_profile(self, discord_id: int, **kwargs) -> bool:
+                    """Create a new user profile"""
+                    try:
+                        async with aiosqlite.connect(self.db_path) as db:
+                            columns = ['discord_id'] + list(kwargs.keys())
+                            values = [discord_id] + list(kwargs.values())
+                            placeholders = ','.join(['?'] * len(values))
+                            
+                            await db.execute(
+                                f"INSERT INTO user_profiles ({','.join(columns)}) VALUES ({placeholders})",
+                                values
+                            )
+                            await db.commit()
+                            return True
+                    except Exception as e:
+                        logger.error(f"Error creating user profile: {e}")
+                        return False
+                        
+                async def update_user_profile(self, discord_id: int, **kwargs) -> bool:
+                    """Update user profile"""
+                    try:
+                        async with aiosqlite.connect(self.db_path) as db:
+                            set_clause = ','.join([f"{k} = ?" for k in kwargs.keys()])
+                            values = list(kwargs.values()) + [discord_id]
+                            
+                            cursor = await db.execute(
+                                f"UPDATE user_profiles SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ?",
+                                values
+                            )
+                            await db.commit()
+                            return cursor.rowcount > 0
+                    except Exception as e:
+                        logger.error(f"Error updating user profile: {e}")
+                        return False
+                        
+                async def cache_game(self, game_data: Dict[str, Any]) -> bool:
+                    """Cache game data"""
+                    try:
+                        async with aiosqlite.connect(self.db_path) as db:
+                            await db.execute("""
+                                INSERT OR REPLACE INTO game_cache 
+                                (bgg_id, name, year_published, min_players, max_players, playing_time,
+                                 min_playtime, max_playtime, min_age, description, image_url, thumbnail_url,
+                                 rating, rating_count, weight, cached_at)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                            """, (
+                                game_data['bgg_id'], game_data['name'], game_data.get('year_published'),
+                                game_data.get('min_players'), game_data.get('max_players'), game_data.get('playing_time'),
+                                game_data.get('min_playtime'), game_data.get('max_playtime'), game_data.get('min_age'),
+                                game_data.get('description'), game_data.get('image_url'), game_data.get('thumbnail_url'),
+                                game_data.get('rating'), game_data.get('rating_count'), game_data.get('weight')
+                            ))
+                            await db.commit()
+                            return True
+                    except Exception as e:
+                        logger.error(f"Error caching game: {e}")
+                        return False
+                        
+                async def close(self):
+                    """Close database connection - placeholder for consistency"""
+                    pass
+            DBEOF
+
+            # Create BGG API client
+            cat > /app/utils/bgg_api.py << 'BGGEOF'
+            import aiohttp
+            import asyncio
+            import logging
+            import xml.etree.ElementTree as ET
+            from typing import List, Dict, Any, Optional
+
+            logger = logging.getLogger(__name__)
+
+            class BGGApiClient:
+                def __init__(self):
+                    self.base_url = "https://boardgamegeek.com/xmlapi2"
+                    self.session = None
+                    
+                async def __aenter__(self):
+                    self.session = aiohttp.ClientSession()
+                    return self
+                    
+                async def __aexit__(self, exc_type, exc_val, exc_tb):
+                    if self.session:
+                        await self.session.close()
+                        
+                async def search_games(self, query: str) -> List[Dict[str, Any]]:
+                    """Search for games"""
+                    try:
+                        url = f"{self.base_url}/search"
+                        params = {"query": query, "type": "boardgame"}
+                        
+                        async with self.session.get(url, params=params) as response:
+                            if response.status != 200:
+                                return []
+                                
+                            content = await response.text()
+                            root = ET.fromstring(content)
+                            
+                            games = []
+                            for item in root.findall('item'):
+                                game = {
+                                    'bgg_id': int(item.get('id')),
+                                    'name': item.find('name').get('value'),
+                                    'year_published': item.find('yearpublished').get('value') if item.find('yearpublished') is not None else None
+                                }
+                                if game['year_published']:
+                                    game['year_published'] = int(game['year_published'])
+                                games.append(game)
+                                
+                            return games
+                    except Exception as e:
+                        logger.error(f"Error searching games: {e}")
+                        return []
+                        
+                async def get_game_details(self, game_ids: List[int]) -> List[Dict[str, Any]]:
+                    """Get detailed game information"""
+                    try:
+                        url = f"{self.base_url}/thing"
+                        params = {"id": ",".join(map(str, game_ids)), "stats": "1"}
+                        
+                        async with self.session.get(url, params=params) as response:
+                            if response.status != 200:
+                                return []
+                                
+                            content = await response.text()
+                            root = ET.fromstring(content)
+                            
+                            games = []
+                            for item in root.findall('item'):
+                                game = {
+                                    'bgg_id': int(item.get('id')),
+                                    'name': item.find('.//name[@type="primary"]').get('value'),
+                                    'description': item.find('description').text if item.find('description') is not None else '',
+                                    'year_published': int(item.find('yearpublished').get('value')) if item.find('yearpublished') is not None else None,
+                                    'min_players': int(item.find('.//minplayers').get('value')) if item.find('.//minplayers') is not None else None,
+                                    'max_players': int(item.find('.//maxplayers').get('value')) if item.find('.//maxplayers') is not None else None,
+                                    'playing_time': int(item.find('.//playingtime').get('value')) if item.find('.//playingtime') is not None else None,
+                                    'min_playtime': int(item.find('.//minplaytime').get('value')) if item.find('.//minplaytime') is not None else None,
+                                    'max_playtime': int(item.find('.//maxplaytime').get('value')) if item.find('.//maxplaytime') is not None else None,
+                                    'min_age': int(item.find('.//minage').get('value')) if item.find('.//minage') is not None else None,
+                                    'image_url': item.find('image').text if item.find('image') is not None else None,
+                                    'thumbnail_url': item.find('thumbnail').text if item.find('thumbnail') is not None else None,
+                                }
+                                
+                                # Get rating info
+                                stats = item.find('.//statistics/ratings')
+                                if stats is not None:
+                                    average = stats.find('average')
+                                    if average is not None:
+                                        game['rating'] = float(average.get('value'))
+                                    usersrated = stats.find('usersrated')
+                                    if usersrated is not None:
+                                        game['rating_count'] = int(usersrated.get('value'))
+                                    weight = stats.find('averageweight')
+                                    if weight is not None:
+                                        game['weight'] = float(weight.get('value'))
+                                
+                                games.append(game)
+                                
+                            return games
+                    except Exception as e:
+                        logger.error(f"Error getting game details: {e}")
+                        return []
+                        
+                async def get_user_collection(self, username: str, collection_types: List[str]) -> List[Dict[str, Any]]:
+                    """Get user collection"""
+                    try:
+                        url = f"{self.base_url}/collection"
+                        params = {"username": username, "stats": "1"}
+                        for ctype in collection_types:
+                            params[ctype] = "1"
+                            
+                        async with self.session.get(url, params=params) as response:
+                            if response.status != 200:
+                                return []
+                                
+                            content = await response.text()
+                            root = ET.fromstring(content)
+                            
+                            games = []
+                            for item in root.findall('item'):
+                                game = {
+                                    'bgg_id': int(item.get('objectid')),
+                                    'name': item.find('name').text,
+                                    'year_published': int(item.find('yearpublished').text) if item.find('yearpublished') is not None and item.find('yearpublished').text else None,
+                                    'own': item.find('status').get('own') == '1' if item.find('status') is not None else False,
+                                    'wishlist': item.find('status').get('wishlist') == '1' if item.find('status') is not None else False,
+                                    'fortrade': item.find('status').get('fortrade') == '1' if item.find('status') is not None else False,
+                                    'want': item.find('status').get('want') == '1' if item.find('status') is not None else False,
+                                }
+                                
+                                # Get user rating
+                                stats = item.find('stats')
+                                if stats is not None:
+                                    rating = stats.find('.//rating')
+                                    if rating is not None and rating.get('value') != 'N/A':
+                                        game['rating'] = float(rating.get('value'))
+                                        
+                                games.append(game)
+                                
+                            return games
+                    except Exception as e:
+                        logger.error(f"Error getting user collection: {e}")
+                        return []
+                        
+                async def get_user_plays(self, username: str, page: int = 1) -> Dict[str, Any]:
+                    """Get user plays"""
+                    try:
+                        url = f"{self.base_url}/plays"
+                        params = {"username": username, "page": page}
+                        
+                        async with self.session.get(url, params=params) as response:
+                            if response.status != 200:
+                                return {"plays": [], "total": 0}
+                                
+                            content = await response.text()
+                            root = ET.fromstring(content)
+                            
+                            total = int(root.get('total', 0))
+                            
+                            plays = []
+                            for play in root.findall('play'):
+                                play_data = {
+                                    'id': int(play.get('id')),
+                                    'date': play.get('date'),
+                                    'quantity': int(play.get('quantity', 1)),
+                                    'length': int(play.get('length', 0)),
+                                    'location': play.get('location', ''),
+                                    'comments': play.find('comments').text if play.find('comments') is not None else '',
+                                    'game_name': play.find('.//item').get('name') if play.find('.//item') is not None else 'Unknown Game',
+                                    'players': []
+                                }
+                                
+                                # Get players
+                                for player in play.findall('.//player'):
+                                    player_data = {
+                                        'name': player.get('name'),
+                                        'username': player.get('username'),
+                                        'score': player.get('score'),
+                                        'new': player.get('new') == '1',
+                                        'win': player.get('win') == '1'
+                                    }
+                                    play_data['players'].append(player_data)
+                                    
+                                plays.append(play_data)
+                                
+                            return {"plays": plays, "total": total}
+                    except Exception as e:
+                        logger.error(f"Error getting user plays: {e}")
+                        return {"plays": [], "total": 0}
+            BGGEOF
+
+            # Copy the updated bot files
+            echo "Creating updated bot with slash commands..."
+            cat > /app/bot.py << 'BOTEOF'
