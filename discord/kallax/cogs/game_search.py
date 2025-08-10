@@ -1,4 +1,5 @@
 import discord
+from discord import app_commands
 from discord.ext import commands
 import asyncio
 import logging
@@ -14,46 +15,43 @@ class GameSearchCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         
-    @commands.command(name='search', aliases=['find', 'game'])
-    @commands.cooldown(1, 5, commands.BucketType.user)
-    async def search_game(self, ctx, *, query: str):
-        """Search for board games on BoardGameGeek
-        
-        Usage: !search <game name>
-        Example: !search Wingspan
-        """
+    @app_commands.command(name='gg-search', description='Search for board games on BoardGameGeek')
+    @app_commands.describe(query='Name of the board game to search for')
+    async def search_game(self, interaction: discord.Interaction, query: str):
+        """Search for board games on BoardGameGeek"""
         if not query or len(query.strip()) < 2:
-            await ctx.send("❌ Please provide a game name to search for (at least 2 characters)")
+            await interaction.response.send_message("❌ Please provide a game name to search for (at least 2 characters)", ephemeral=True)
             return
             
-        # Show typing indicator
-        async with ctx.typing():
-            try:
-                async with BGGApiClient() as bgg:
-                    # Search for games
-                    search_results = await bgg.search_games(query.strip())
+        # Defer response for longer operations
+        await interaction.response.defer()
+        
+        try:
+            async with BGGApiClient() as bgg:
+                # Search for games
+                search_results = await bgg.search_games(query.strip())
+                
+                if not search_results:
+                    await interaction.followup.send(f"❌ No games found matching '{query}'")
+                    return
                     
-                    if not search_results:
-                        await ctx.send(f"❌ No games found matching '{query}'")
-                        return
-                        
-                    # Limit results to top 10
-                    search_results = search_results[:10]
+                # Limit results to top 10
+                search_results = search_results[:10]
+                
+                # If only one result, show detailed info
+                if len(search_results) == 1:
+                    await self._show_game_details_interaction(interaction, search_results[0]['bgg_id'])
+                    return
                     
-                    # If only one result, show detailed info
-                    if len(search_results) == 1:
-                        await self._show_game_details(ctx, search_results[0]['bgg_id'])
-                        return
-                        
-                    # Show search results with reactions for selection
-                    await self._show_search_results(ctx, search_results, query)
-                    
-            except Exception as e:
-                logger.error(f"Error searching for games: {e}")
-                await ctx.send("❌ An error occurred while searching. Please try again.")
+                # Show search results with reactions for selection
+                await self._show_search_results_interaction(interaction, search_results, query)
+                
+        except Exception as e:
+            logger.error(f"Error searching for games: {e}")
+            await interaction.followup.send("❌ An error occurred while searching. Please try again.")
     
-    async def _show_search_results(self, ctx, results: List[Dict[str, Any]], original_query: str):
-        """Show search results with reaction-based selection"""
+    async def _show_search_results_interaction(self, interaction: discord.Interaction, results: List[Dict[str, Any]], original_query: str):
+        """Show search results with reaction-based selection for interactions"""
         
         # Number emojis for selection
         number_emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
@@ -75,7 +73,7 @@ class GameSearchCog(commands.Cog):
             
         embed.set_footer(text="React within 60 seconds to select a game")
         
-        message = await ctx.send(embed=embed)
+        message = await interaction.followup.send(embed=embed)
         
         # Add reaction buttons
         for i in range(min(len(results), 10)):
@@ -83,7 +81,7 @@ class GameSearchCog(commands.Cog):
             
         def check(reaction, user):
             return (
-                user == ctx.author and
+                user == interaction.user and
                 reaction.message.id == message.id and
                 str(reaction.emoji) in number_emojis[:len(results)]
             )
@@ -96,7 +94,7 @@ class GameSearchCog(commands.Cog):
             selected_game = results[selected_index]
             
             # Show detailed info
-            await self._show_game_details(ctx, selected_game['bgg_id'])
+            await self._show_game_details_interaction_followup(interaction, selected_game['bgg_id'])
             
         except asyncio.TimeoutError:
             # Remove reactions on timeout
@@ -107,30 +105,53 @@ class GameSearchCog(commands.Cog):
             except discord.NotFound:
                 pass
                 
-    async def _show_game_details(self, ctx, game_id: int):
-        """Show detailed game information"""
-        async with ctx.typing():
-            try:
-                async with BGGApiClient() as bgg:
-                    # Get detailed game info
-                    games = await bgg.get_game_details([game_id])
+    async def _show_game_details_interaction(self, interaction: discord.Interaction, game_id: int):
+        """Show detailed game information for slash command interaction"""
+        try:
+            async with BGGApiClient() as bgg:
+                # Get detailed game info
+                games = await bgg.get_game_details([game_id])
+                
+                if not games:
+                    await interaction.followup.send("❌ Could not retrieve game details.")
+                    return
                     
-                    if not games:
-                        await ctx.send("❌ Could not retrieve game details.")
-                        return
-                        
-                    game = games[0]
+                game = games[0]
+                
+                # Cache the game data
+                await self.bot.database.cache_game(game)
+                
+                # Create detailed embed
+                embed = await self._create_game_embed(game)
+                await interaction.followup.send(embed=embed)
+                
+        except Exception as e:
+            logger.error(f"Error getting game details: {e}")
+            await interaction.followup.send("❌ An error occurred while getting game details.")
+    
+    async def _show_game_details_interaction_followup(self, interaction: discord.Interaction, game_id: int):
+        """Show detailed game information as a followup to existing interaction"""
+        try:
+            async with BGGApiClient() as bgg:
+                # Get detailed game info
+                games = await bgg.get_game_details([game_id])
+                
+                if not games:
+                    await interaction.followup.send("❌ Could not retrieve game details.")
+                    return
                     
-                    # Cache the game data
-                    await self.bot.database.cache_game(game)
-                    
-                    # Create detailed embed
-                    embed = await self._create_game_embed(game)
-                    await ctx.send(embed=embed)
-                    
-            except Exception as e:
-                logger.error(f"Error getting game details: {e}")
-                await ctx.send("❌ An error occurred while getting game details.")
+                game = games[0]
+                
+                # Cache the game data
+                await self.bot.database.cache_game(game)
+                
+                # Create detailed embed
+                embed = await self._create_game_embed(game)
+                await interaction.followup.send(embed=embed)
+                
+        except Exception as e:
+            logger.error(f"Error getting game details: {e}")
+            await interaction.followup.send("❌ An error occurred while getting game details.")
                 
     async def _create_game_embed(self, game: Dict[str, Any]) -> discord.Embed:
         """Create a rich embed with game information"""
@@ -208,7 +229,7 @@ class GameSearchCog(commands.Cog):
             
         # Footer
         embed.set_footer(
-            text=f"BGG ID: {game['bgg_id']} | Use !collection <username> to see someone's collection",
+            text=f"BGG ID: {game['bgg_id']} | Use /gg-collection <username> to see someone's collection",
             icon_url="https://cf.geekdo-static.com/images/logos/navbar-logo-bgg-b2.svg"
         )
         
@@ -228,43 +249,39 @@ class GameSearchCog(commands.Cog):
         else:
             return "Heavy"
             
-    @commands.command(name='random', aliases=['rand'])
-    @commands.cooldown(1, 10, commands.BucketType.user)
-    async def random_game(self, ctx, *, filters: str = None):
-        """Get a random popular board game
+    @app_commands.command(name='gg-random', description='Get a random popular board game')
+    async def random_game(self, interaction: discord.Interaction):
+        """Get a random popular board game"""
+        await interaction.response.defer()
         
-        Usage: !random [filters]
-        Example: !random 2-4 players 60 minutes
-        """
-        async with ctx.typing():
-            try:
-                # For now, we'll use a simple approach with top games
-                # In a full implementation, you'd want to implement proper filtering
-                
-                # Get a random game from BGG's hot list or top games
-                # This is a simplified version - you'd want to expand this
-                
-                popular_game_ids = [
-                    174430,  # Gloomhaven
-                    12333,   # Twilight Struggle
-                    233078,  # Twilight Imperium 4
-                    167791,  # Terraforming Mars
-                    220308,  # Gaia Project
-                    161936,  # Pandemic Legacy: Season 1
-                    182028,  # Through the Ages: A New Story
-                    187645,  # Star Wars: Rebellion
-                    115746,  # War of the Ring (second edition)
-                    36218,   # Dominant Species
-                ]
-                
-                import random
-                selected_id = random.choice(popular_game_ids)
-                
-                await self._show_game_details(ctx, selected_id)
-                
-            except Exception as e:
-                logger.error(f"Error getting random game: {e}")
-                await ctx.send("❌ An error occurred while finding a random game.")
+        try:
+            # For now, we'll use a simple approach with top games
+            # In a full implementation, you'd want to implement proper filtering
+            
+            # Get a random game from BGG's hot list or top games
+            # This is a simplified version - you'd want to expand this
+            
+            popular_game_ids = [
+                174430,  # Gloomhaven
+                12333,   # Twilight Struggle
+                233078,  # Twilight Imperium 4
+                167791,  # Terraforming Mars
+                220308,  # Gaia Project
+                161936,  # Pandemic Legacy: Season 1
+                182028,  # Through the Ages: A New Story
+                187645,  # Star Wars: Rebellion
+                115746,  # War of the Ring (second edition)
+                36218,   # Dominant Species
+            ]
+            
+            import random
+            selected_id = random.choice(popular_game_ids)
+            
+            await self._show_game_details_interaction(interaction, selected_id)
+            
+        except Exception as e:
+            logger.error(f"Error getting random game: {e}")
+            await interaction.followup.send("❌ An error occurred while finding a random game.")
 
 async def setup(bot):
     await bot.add_cog(GameSearchCog(bot))

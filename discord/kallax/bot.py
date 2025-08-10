@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -40,6 +41,7 @@ class KallaxBot(commands.Bot):
         )
         
         self.database = None
+        self.synced = False
         
     async def setup_hook(self):
         """Setup hook called when bot is starting up"""
@@ -73,8 +75,17 @@ class KallaxBot(commands.Bot):
         logger.info(f'{self.user} has connected to Discord!')
         logger.info(f'Bot is in {len(self.guilds)} guilds')
         
+        # Sync slash commands (only once)
+        if not self.synced:
+            try:
+                synced = await self.tree.sync()
+                logger.info(f"Synced {len(synced)} command(s)")
+                self.synced = True
+            except Exception as e:
+                logger.error(f"Failed to sync commands: {e}")
+        
         # Set bot activity
-        activity = discord.Game(name="Board Games | !help")
+        activity = discord.Game(name="Board Games | /gg-search <game>")
         await self.change_presence(activity=activity)
         
     async def on_command_error(self, ctx, error):
