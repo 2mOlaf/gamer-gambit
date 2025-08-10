@@ -62,14 +62,18 @@ class UserProfilesCog(commands.Cog):
         
         # Update user profile
         profile_data = {valid_platforms[platform]: username}
+        logger.info(f"Setting {platform} profile for user {interaction.user.id} to {username}")
         
         try:
             success = await self.bot.database.update_user_profile(interaction.user.id, **profile_data)
+            logger.info(f"Update result: {success}")
             if success:
                 await interaction.followup.send(f"✅ {platform.upper()} profile set to: **{username}**")
             else:
                 # Create profile if update failed
+                logger.info(f"Update failed, creating new profile for user {interaction.user.id}")
                 success = await self.bot.database.create_user_profile(interaction.user.id, **profile_data)
+                logger.info(f"Create result: {success}")
                 if success:
                     await interaction.followup.send(f"✅ Profile created! {platform.upper()} username set to: **{username}**")
                 else:

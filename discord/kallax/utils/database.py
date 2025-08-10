@@ -111,6 +111,7 @@ class Database:
     # User Profile Methods
     async def get_user_profile(self, discord_id: int) -> Optional[Dict[str, Any]]:
         """Get user profile by Discord ID"""
+        logger.info(f"Looking up profile for discord_id: {discord_id}")
         cursor = await self.connection.execute(
             "SELECT * FROM user_profiles WHERE discord_id = ?", 
             (discord_id,)
@@ -118,7 +119,10 @@ class Database:
         row = await cursor.fetchone()
         if row:
             columns = [description[0] for description in cursor.description]
-            return dict(zip(columns, row))
+            profile = dict(zip(columns, row))
+            logger.info(f"Found profile: {profile}")
+            return profile
+        logger.info(f"No profile found for discord_id: {discord_id}")
         return None
         
     async def create_user_profile(self, discord_id: int, **kwargs) -> bool:
@@ -160,9 +164,11 @@ class Database:
             values.append(discord_id)
             
             query = f"UPDATE user_profiles SET {', '.join(updates)} WHERE discord_id = ?"
-            await self.connection.execute(query, values)
+            cursor = await self.connection.execute(query, values)
             await self.connection.commit()
-            return True
+            
+            # Check if any rows were actually updated
+            return cursor.rowcount > 0
         except Exception as e:
             logger.error(f"Error updating user profile: {e}")
             return False
