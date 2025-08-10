@@ -116,3 +116,28 @@ dist
 .pnp.*
 /itch_pak thumbs.zip
 /ecosystem.config.js
+
+# Security: Never commit credentials
+auth.json
+**/auth.json
+*.token
+*.key
+.secrets
+secrets.json
+config.json
+local.settings.json
+
+# Discord bot tokens
+token.txt
+bot_token.txt
+discord_token.txt
+
+# Database files (may contain sensitive data)
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# Kubernetes secrets (already using external secret management)
+k8s/secrets.yaml
+k8s/secret.yaml
