@@ -1,26 +1,198 @@
 import aiosqlite
+import asyncio
 import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+import time
+import os
 
 logger = logging.getLogger(__name__)
 
 class Database:
-    """Database manager for Kallax bot"""
+    """Optimized database manager for Kallax bot with connection pooling and lazy loading"""
     
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.connection: Optional[aiosqlite.Connection] = None
+        self._initialized = False
+        self._initialization_lock = asyncio.Lock()
+        self._connection_lock = asyncio.Lock()
+        self._last_health_check = 0
+        self._health_check_interval = 300  # 5 minutes
+        self._table_cache = set()  # Cache which tables exist
         
     async def initialize(self):
-        """Initialize database and create tables"""
-        # Ensure data directory exists
-        db_dir = Path(self.db_path).parent
-        db_dir.mkdir(parents=True, exist_ok=True)
+        """Initialize database and create tables with lazy loading"""
+        async with self._initialization_lock:
+            if self._initialized:
+                return
+                
+            # Ensure data directory exists
+            db_dir = Path(self.db_path).parent
+            db_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Check if database file exists to skip table creation if possible
+            db_exists = Path(self.db_path).exists()
+            
+            # Configure connection with optimizations
+            self.connection = await aiosqlite.connect(
+                self.db_path,
+                timeout=30.0,
+                isolation_level=None  # Autocommit mode for better performance
+            )
+            
+            # Optimize SQLite settings
+            await self.connection.execute("PRAGMA journal_mode=WAL")
+            await self.connection.execute("PRAGMA synchronous=NORMAL") 
+            await self.connection.execute("PRAGMA cache_size=10000")
+            await self.connection.execute("PRAGMA temp_store=memory")
+            await self.connection.execute("PRAGMA mmap_size=268435456")  # 256MB
+            
+            if not db_exists:
+                await self._create_tables()
+                logger.info(f"Database created and initialized at {self.db_path}")
+            else:
+                await self._validate_schema()
+                logger.info(f"Database connected at {self.db_path}")
+                
+            self._initialized = True
+            
+    async def _validate_schema(self):
+        """Validate existing database schema"""
+        try:
+            # Quick schema validation - just check if key tables exist
+            cursor = await self.connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?, ?, ?)",
+                ('user_profiles', 'game_cache', 'game_plays', 'server_settings')
+            )
+            existing_tables = {row[0] for row in await cursor.fetchall()}
+            
+            required_tables = {'user_profiles', 'game_cache', 'game_plays', 'server_settings'}
+            missing_tables = required_tables - existing_tables
+            
+            if missing_tables:
+                logger.warning(f"Missing tables: {missing_tables}. Creating missing tables.")
+                await self._create_missing_tables(missing_tables)
+            else:
+                self._table_cache = existing_tables
+                
+        except Exception as e:
+            logger.warning(f"Schema validation failed, recreating tables: {e}")
+            await self._create_tables()
+            
+    async def _create_missing_tables(self, missing_tables: set):
+        """Create only missing tables instead of all tables"""
+        table_definitions = {
+            'user_profiles': """
+                CREATE TABLE IF NOT EXISTS user_profiles (
+                    discord_id INTEGER PRIMARY KEY,
+                    bgg_username TEXT,
+                    steam_id TEXT,
+                    xbox_gamertag TEXT,
+                    weekly_stats_enabled BOOLEAN DEFAULT FALSE,
+                    weekly_stats_channel_id INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_user_profiles_bgg_username ON user_profiles(bgg_username);
+            """,
+            'game_cache': """
+                CREATE TABLE IF NOT EXISTS game_cache (
+                    bgg_id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    year_published INTEGER,
+                    image_url TEXT,
+                    thumbnail_url TEXT,
+                    description TEXT,
+                    min_players INTEGER,
+                    max_players INTEGER,
+                    playing_time INTEGER,
+                    min_playtime INTEGER,
+                    max_playtime INTEGER,
+                    min_age INTEGER,
+                    rating REAL,
+                    rating_count INTEGER,
+                    weight REAL,
+                    cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """,
+            'game_plays': """
+                CREATE TABLE IF NOT EXISTS game_plays (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    discord_id INTEGER NOT NULL,
+                    bgg_id INTEGER,
+                    game_name TEXT NOT NULL,
+                    play_date DATE NOT NULL,
+                    duration_minutes INTEGER,
+                    player_count INTEGER,
+                    players TEXT,
+                    scores TEXT,
+                    comments TEXT,
+                    location TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (discord_id) REFERENCES user_profiles(discord_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_game_plays_discord_id ON game_plays(discord_id);
+                CREATE INDEX IF NOT EXISTS idx_game_plays_date ON game_plays(play_date);
+            """,
+            'server_settings': """
+                CREATE TABLE IF NOT EXISTS server_settings (
+                    guild_id INTEGER PRIMARY KEY,
+                    weekly_stats_channel_id INTEGER,
+                    command_prefix TEXT DEFAULT '!',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """
+        }
         
-        self.connection = await aiosqlite.connect(self.db_path)
-        await self._create_tables()
-        logger.info(f"Database initialized at {self.db_path}")
+        for table_name in missing_tables:
+            if table_name in table_definitions:
+                await self.connection.executescript(table_definitions[table_name])
+                logger.info(f"Created missing table: {table_name}")
+                
+        await self.connection.commit()
+        
+    async def get_connection(self):
+        """Get database connection with lazy initialization"""
+        if not self._initialized:
+            await self.initialize()
+            
+        # Health check connection
+        current_time = time.time()
+        if current_time - self._last_health_check > self._health_check_interval:
+            try:
+                await self.connection.execute("SELECT 1")
+                self._last_health_check = current_time
+            except Exception as e:
+                logger.warning(f"Database health check failed, reconnecting: {e}")
+                await self._reconnect()
+                
+        return self.connection
+        
+    async def _reconnect(self):
+        """Reconnect to database"""
+        async with self._connection_lock:
+            try:
+                if self.connection:
+                    await self.connection.close()
+            except:
+                pass
+                
+            self.connection = await aiosqlite.connect(
+                self.db_path,
+                timeout=30.0,
+                isolation_level=None
+            )
+            
+            # Reapply optimizations
+            await self.connection.execute("PRAGMA journal_mode=WAL")
+            await self.connection.execute("PRAGMA synchronous=NORMAL")
+            await self.connection.execute("PRAGMA cache_size=10000")
+            await self.connection.execute("PRAGMA temp_store=memory")
+            await self.connection.execute("PRAGMA mmap_size=268435456")
+            
+            logger.info("Database reconnected successfully")
         
     async def _create_tables(self):
         """Create all necessary tables"""
@@ -112,7 +284,8 @@ class Database:
     async def get_user_profile(self, discord_id: int) -> Optional[Dict[str, Any]]:
         """Get user profile by Discord ID"""
         logger.info(f"Looking up profile for discord_id: {discord_id}")
-        cursor = await self.connection.execute(
+        conn = await self.get_connection()
+        cursor = await conn.execute(
             "SELECT * FROM user_profiles WHERE discord_id = ?", 
             (discord_id,)
         )
@@ -128,7 +301,8 @@ class Database:
     async def create_user_profile(self, discord_id: int, **kwargs) -> bool:
         """Create or update user profile"""
         try:
-            await self.connection.execute("""
+            conn = await self.get_connection()
+            await conn.execute("""
                 INSERT OR REPLACE INTO user_profiles 
                 (discord_id, bgg_username, steam_id, xbox_gamertag, weekly_stats_enabled, weekly_stats_channel_id, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -140,7 +314,6 @@ class Database:
                 kwargs.get('weekly_stats_enabled', False),
                 kwargs.get('weekly_stats_channel_id')
             ))
-            await self.connection.commit()
             return True
         except Exception as e:
             logger.error(f"Error creating user profile: {e}")
