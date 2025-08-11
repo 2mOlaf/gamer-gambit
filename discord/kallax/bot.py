@@ -1,5 +1,5 @@
-# Kallax Discord Bot - Gaming Companion Bot
-# Trigger: CI/CD Pipeline Test
+# Kallax Discord Bot - Gaming Companion Bot  
+# Trigger: CI/CD Pipeline Test (Docker DinD Fixed)
 
 import asyncio
 import logging

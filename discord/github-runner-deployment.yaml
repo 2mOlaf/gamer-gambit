@@ -30,22 +30,51 @@ spec:
           value: "default"
         - name: LABELS
           value: "kubernetes,self-hosted,discord-bot"
+        - name: DOCKER_HOST
+          value: "tcp://localhost:2376"
+        - name: DOCKER_TLS_VERIFY
+          value: "1"
+        - name: DOCKER_CERT_PATH
+          value: "/certs/client"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: runner-temp
+          mountPath: /tmp/runner
+        - name: docker-certs
+          mountPath: /certs
+      - name: dind
+        image: docker:dind
+        env:
+        - name: DOCKER_TLS_CERTDIR
+          value: "/certs"
         resources:
           requests:
             memory: "512Mi"
-            cpu: "500m"
+            cpu: "250m"
           limits:
             memory: "2Gi"
             cpu: "1000m"
+        securityContext:
+          privileged: true
         volumeMounts:
-        - name: docker-sock
-          mountPath: /var/run/docker.sock
-        - name: runner-temp
-          mountPath: /tmp/runner
+        - name: docker-certs
+          mountPath: /certs
+        - name: docker-storage
+          mountPath: /var/lib/docker
       volumes:
-      - name: docker-sock
-        hostPath:
-          path: /var/run/docker.sock
       - name: runner-temp
         emptyDir: {}
+      - name: docker-certs
+        emptyDir: {}
+      - name: docker-storage
+        emptyDir:
+          sizeLimit: 10Gi
       restartPolicy: Always
