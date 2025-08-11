@@ -158,22 +158,22 @@ class Database:
         if not self._initialized:
             await self.initialize()
             
-        # Health check connection
-        current_time = time.time()
-        if current_time - self._last_health_check > self._health_check_interval:
-            try:
-                await self.connection.execute("SELECT 1")
-                self._last_health_check = current_time
-            except Exception as e:
-                logger.warning(f"Database health check failed, reconnecting: {e}")
-                await self._reconnect()
+        # Health check connection - DISABLED due to hanging issue
+        # current_time = time.time()
+        # if current_time - self._last_health_check > self._health_check_interval:
+            # try:
+                # await self.connection.execute("SELECT 1")
+                # self._last_health_check = current_time
+            # except Exception as e:
+                # logger.warning(f"Database health check failed, reconnecting: {e}")
+                # await self._reconnect()
                 
         return self.connection
         
     async def _reconnect(self):
         """Reconnect to database"""
         async with self._connection_lock:
-            try:
+            # try:
                 if self.connection:
                     await self.connection.close()
             except:
