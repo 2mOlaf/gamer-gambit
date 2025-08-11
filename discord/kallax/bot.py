@@ -1,3 +1,6 @@
+# Kallax Discord Bot - Gaming Companion Bot
+# Trigger: CI/CD Pipeline Test
+
 import asyncio
 import logging
 import os
