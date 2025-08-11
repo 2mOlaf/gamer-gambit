@@ -1,0 +1,33 @@
+name: Debug Pipeline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: [self-hosted, kubernetes, discord-bot]
+    
+    steps:
+    - name: Basic environment check
+      run: |
+        echo \"=== Environment Info ===\"
+        whoami
+        pwd
+        echo \"=== Python Info ===\"
+        python3 --version
+        which python3
+        echo \"=== Docker Info ===\"
+        docker version
+        echo \"=== Git Info ===\"
+        git --version
+
+    - name: Checkout test
+      uses: actions/checkout@v4
+      
+    - name: Post checkout check
+      run: |
+        echo \"=== After Checkout ===\"
+        pwd
+        ls -la
+        echo \"=== Kallax directory ===\"
+        ls -la discord/kallax/ || echo \"Kallax directory not found\"
