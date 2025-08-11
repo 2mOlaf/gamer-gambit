@@ -86,7 +86,7 @@ spec:
             command:
             - /bin/bash
             - -c
-            - ps aux | grep -v grep | grep 'python bot.py'
+            - pidof python
           initialDelaySeconds: 90
           periodSeconds: 30
           timeoutSeconds: 5
@@ -96,7 +96,7 @@ spec:
             command:
             - /bin/bash
             - -c
-            - ps aux | grep -v grep | grep 'python bot.py' && test -f /app/data/kallax.db
+            - pidof python && test -f /app/data/kallax.db
           initialDelaySeconds: 60
           periodSeconds: 15
           timeoutSeconds: 5
