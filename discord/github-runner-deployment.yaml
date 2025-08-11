@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gamer-gambit-runner
+  labels:
+    app: gamer-gambit-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gamer-gambit-runner
+  template:
+    metadata:
+      labels:
+        app: gamer-gambit-runner
+    spec:
+      containers:
+      - name: runner
+        image: myoung34/github-runner:latest
+        env:
+        - name: REPO_URL
+          value: "https://github.com/2mOlaf/gamer-gambit"
+        - name: RUNNER_TOKEN
+          value: "ACYMZHUBVLCSFOVD5EDQ4RLITFLOS"
+        - name: RUNNER_NAME
+          value: "gamer-gambit-k8s-runner"
+        - name: RUNNER_WORK_DIRECTORY
+          value: "/tmp/runner/work"
+        - name: RUNNER_GROUP
+          value: "default"
+        - name: LABELS
+          value: "kubernetes,self-hosted,discord-bot"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+        - name: runner-temp
+          mountPath: /tmp/runner
+      volumes:
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+      - name: runner-temp
+        emptyDir: {}
+      restartPolicy: Always

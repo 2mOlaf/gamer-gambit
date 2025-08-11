@@ -1,0 +1,140 @@
+# Jarvfjallet Discord Bot CI/CD Pipeline
+# NOTE: This workflow is currently disabled (.yml.disabled extension)
+# Rename to .yml when ready to deploy Jarvfjallet
+
+name: Jarvfjallet Discord Bot CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths: 
+      - 'discord/jarvfjallet/**'
+      - '.github/workflows/jarvfjallet-deploy.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'discord/jarvfjallet/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - test
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: jarvfjallet-discord-bot
+  BOT_DIRECTORY: discord/jarvfjallet
+
+jobs:
+  # Test and Build Job
+  build-and-test:
+    runs-on: [self-hosted, kubernetes, discord-bot]
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: ${{ env.BOT_DIRECTORY }}/node/package-lock.json
+
+    - name: Install dependencies
+      working-directory: ${{ env.BOT_DIRECTORY }}/node
+      run: |
+        npm ci
+
+    - name: Lint JavaScript code
+      working-directory: ${{ env.BOT_DIRECTORY }}/node
+      run: |
+        # Install ESLint if not in dependencies
+        npm install --no-save eslint
+        # Basic linting (can be customized based on your preferences)
+        npx eslint . --ext .js --ignore-pattern node_modules/ || true
+
+    - name: Run basic bot validation
+      working-directory: ${{ env.BOT_DIRECTORY }}/node
+      run: |
+        # Validate bot can load without errors
+        node -e "
+        try {
+          console.log('📦 Checking bot structure...');
+          const fs = require('fs');
+          if (!fs.existsSync('./gg-bot.js')) {
+            throw new Error('Main bot file not found');
+          }
+          console.log('✅ Bot structure validation passed');
+        } catch (error) {
+          console.error('❌ Validation failed:', error.message);
+          process.exit(1);
+        }
+        "
+
+    # TODO: Add Docker build steps when Dockerfile is ready
+    # - name: Set up Docker Buildx
+    #   uses: docker/setup-buildx-action@v3
+    
+    # - name: Log in to Container Registry  
+    #   uses: docker/login-action@v3
+    #   with:
+    #     registry: ${{ env.REGISTRY }}
+    #     username: ${{ github.actor }}
+    #     password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Generate build summary
+      run: |
+        echo "## 🚧 Jarvfjallet Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Status:** Build validation completed" >> $GITHUB_STEP_SUMMARY
+        echo "- **Bot Directory:** ${{ env.BOT_DIRECTORY }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Note:** Docker build and deployment steps are not yet implemented" >> $GITHUB_STEP_SUMMARY
+
+  # Production Deployment (placeholder)
+  deploy-production:
+    needs: build-and-test
+    runs-on: [self-hosted, kubernetes, discord-bot]
+    if: false  # Disabled until ready
+    environment: 
+      name: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy placeholder
+      run: |
+        echo "🚧 Jarvfjallet production deployment not yet implemented"
+        echo "This job is currently disabled (if: false)"
+        
+        # TODO: Implement Kubernetes deployment
+        # - Create Dockerfile for Jarvfjallet
+        # - Create Kubernetes manifests
+        # - Set up deployment pipeline
+
+  # Test Environment Deployment (placeholder)
+  deploy-test:
+    needs: build-and-test
+    runs-on: [self-hosted, kubernetes, discord-bot]
+    if: false  # Disabled until ready
+    environment: 
+      name: test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Test deployment placeholder
+      run: |
+        echo "🚧 Jarvfjallet test deployment not yet implemented"
+        echo "This job is currently disabled (if: false)"

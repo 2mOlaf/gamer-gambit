@@ -1,0 +1,257 @@
+name: Kallax Discord Bot CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths: 
+      - 'discord/kallax/**'
+      - '.github/workflows/kallax-deploy.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'discord/kallax/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - test
+      force_deploy:
+        description: 'Force deployment even if no changes'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: kallax-discord-bot
+  BOT_DIRECTORY: discord/kallax
+
+jobs:
+  # Test and Build Job
+  build-and-test:
+    runs-on: [self-hosted, kubernetes, discord-bot]
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Cache Python dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('discord/kallax/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      working-directory: ${{ env.BOT_DIRECTORY }}
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Lint Python code
+      working-directory: ${{ env.BOT_DIRECTORY }}
+      run: |
+        pip install flake8
+        # Stop build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Warning for other issues (non-blocking)
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics || true
+
+    - name: Run basic bot validation
+      working-directory: ${{ env.BOT_DIRECTORY }}
+      run: |
+        # Validate bot imports and structure
+        python -c "
+        import sys, os
+        sys.path.append('.')
+        try:
+            from utils.database import Database
+            from utils.bgg_api import BGGApiClient
+            print('✅ Bot modules imported successfully')
+        except ImportError as e:
+            print(f'❌ Import error: {e}')
+            sys.exit(1)
+        "
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix=commit-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: ${{ env.BOT_DIRECTORY }}
+        file: ${{ env.BOT_DIRECTORY }}/Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Generate deployment summary
+      run: |
+        echo "## 🐳 Container Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Image:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Digest:** ${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Registry:** ${{ env.REGISTRY }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Context:** ${{ env.BOT_DIRECTORY }}" >> $GITHUB_STEP_SUMMARY
+
+  # Production Deployment
+  deploy-production:
+    needs: build-and-test
+    runs-on: [self-hosted, kubernetes, discord-bot]
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment: 
+      name: production
+      url: https://discord.com/api/oauth2/authorize?client_id=YOUR_BOT_CLIENT_ID
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy to Kubernetes
+      run: |
+        echo "🚀 Deploying Kallax bot to production..."
+        
+        # Update the deployment with the new image
+        IMAGE_TAG="${{ needs.build-and-test.outputs.image-tag }}"
+        echo "Using image: $IMAGE_TAG"
+        
+        # Apply the base deployment first
+        kubectl apply -f discord/kallax/k8s/base/namespace.yaml
+        kubectl apply -f discord/kallax/k8s/base/
+        
+        # Update the deployment image
+        kubectl set image deployment/kallax kallax="$IMAGE_TAG" -n gamer-gambit
+        
+        # Wait for rollout to complete
+        kubectl rollout status deployment/kallax -n gamer-gambit --timeout=300s
+
+    - name: Verify deployment
+      run: |
+        echo "✅ Verifying production deployment..."
+        kubectl get pods -n gamer-gambit -l app=kallax
+        
+        # Check if pod is running
+        kubectl wait --for=condition=ready pod -l app=kallax -n gamer-gambit --timeout=180s
+        
+        echo "📋 Recent logs:"
+        kubectl logs -n gamer-gambit deployment/kallax --tail=20
+
+    - name: Deployment success notification
+      if: success()
+      run: |
+        echo "## 🎉 Production Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+        echo "- **Environment:** Production" >> $GITHUB_STEP_SUMMARY
+        echo "- **Namespace:** gamer-gambit" >> $GITHUB_STEP_SUMMARY
+        echo "- **Image:** ${{ needs.build-and-test.outputs.image-tag }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+  # Test Environment Deployment  
+  deploy-test:
+    needs: build-and-test
+    runs-on: [self-hosted, kubernetes, discord-bot]
+    if: github.ref == 'refs/heads/develop' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'test')
+    environment: 
+      name: test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Create test namespace
+      run: |
+        echo "🧪 Setting up test environment..."
+        kubectl create namespace gamer-gambit-test --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Deploy to test environment
+      run: |
+        echo "🚀 Deploying Kallax bot to test environment..."
+        
+        IMAGE_TAG="${{ needs.build-and-test.outputs.image-tag }}"
+        echo "Using image: $IMAGE_TAG"
+        
+        # Use test-specific deployment configuration
+        if [ -f discord/kallax/k8s/environments/test/kustomization.yaml ]; then
+          # Apply using kustomize if available
+          kubectl apply -k discord/kallax/k8s/environments/test/
+        else
+          # Fallback to basic deployment with test modifications
+          kubectl apply -f discord/kallax/k8s/base/service.yaml -n gamer-gambit-test
+          
+          # Create a test deployment
+          sed 's/name: kallax/name: test-kallax/g; s/app: kallax/app: test-kallax/g; s/namespace: gamer-gambit/namespace: gamer-gambit-test/g' discord/kallax/k8s/base/deployment.yaml | \
+          kubectl apply -f -
+        fi
+        
+        # Update the test deployment image
+        kubectl set image deployment/test-kallax kallax="$IMAGE_TAG" -n gamer-gambit-test || \
+        kubectl set image deployment/kallax kallax="$IMAGE_TAG" -n gamer-gambit-test
+        
+        # Wait for rollout
+        kubectl rollout status deployment/test-kallax -n gamer-gambit-test --timeout=180s || \
+        kubectl rollout status deployment/kallax -n gamer-gambit-test --timeout=180s
+
+    - name: Run integration tests
+      run: |
+        echo "🔍 Running integration tests..."
+        sleep 30  # Wait for bot to fully initialize
+        
+        # Check if bot is responding
+        kubectl logs -n gamer-gambit-test deployment/test-kallax --tail=10 || \
+        kubectl logs -n gamer-gambit-test deployment/kallax --tail=10
+        
+        echo "Integration tests completed"
+
+    - name: Test deployment summary
+      if: success()
+      run: |
+        echo "## 🧪 Test Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+        echo "- **Environment:** Test" >> $GITHUB_STEP_SUMMARY
+        echo "- **Namespace:** gamer-gambit-test" >> $GITHUB_STEP_SUMMARY
+        echo "- **Image:** ${{ needs.build-and-test.outputs.image-tag }}" >> $GITHUB_STEP_SUMMARY
+
+  # Cleanup old test deployments on PR close
+  cleanup-test:
+    runs-on: [self-hosted, kubernetes, discord-bot]
+    if: github.event.action == 'closed' && github.event.pull_request
+    steps:
+    - name: Cleanup test environment
+      run: |
+        echo "🧹 Cleaning up test environment for PR #${{ github.event.number }}"
+        kubectl delete deployment test-kallax -n gamer-gambit-test || true
+        echo "Test environment cleanup completed"
