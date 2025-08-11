@@ -1,0 +1,57 @@
+name: Kallax Test Build
+
+on:
+  push:
+    branches: [ main ]
+    paths: 
+      - 'discord/kallax/**'
+      - '.github/workflows/kallax-test.yml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: kallax-discord-bot
+  BOT_DIRECTORY: discord/kallax
+
+jobs:
+  test-build:
+    runs-on: [self-hosted, kubernetes, discord-bot]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Test Python environment
+      run: |
+        echo \"Python version:\"
+        python3 --version
+        echo \"Pip version:\"
+        python3 -m pip --version
+        echo \"Working directory:\"
+        pwd
+        echo \"Contents of bot directory:\"
+        ls -la ${{ env.BOT_DIRECTORY }}/
+
+    - name: Install requirements
+      working-directory: ${{ env.BOT_DIRECTORY }}
+      run: |
+        echo \"Installing Python dependencies...\"
+        python3 -m pip install --user --upgrade pip
+        python3 -m pip install --user -r requirements.txt
+
+    - name: Test Docker build
+      run: |
+        echo \"Testing Docker build...\"
+        cd ${{ env.BOT_DIRECTORY }}
+        docker build -t test-kallax .
+        echo \"Docker build successful!\"
+
+    - name: Test container registry login
+      run: |
+        echo \"Testing container registry login...\"
+        echo \"${{ secrets.GITHUB_TOKEN }}\" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+        echo \"Registry login successful!\"
+
+    - name: Summary
+      run: |
+        echo \"✅ All test steps completed successfully!\"
