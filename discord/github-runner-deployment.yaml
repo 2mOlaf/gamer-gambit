@@ -21,7 +21,7 @@ spec:
         - name: REPO_URL
           value: "https://github.com/2mOlaf/gamer-gambit"
         - name: RUNNER_TOKEN
-          value: "ACYMZHUBVLCSFOVD5EDQ4RLITFLOS"
+          value: "TEST_TOKEN_123"
         - name: RUNNER_NAME
           value: "gamer-gambit-k8s-runner"
         - name: RUNNER_WORK_DIRECTORY
