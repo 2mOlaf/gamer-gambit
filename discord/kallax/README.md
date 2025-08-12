@@ -170,3 +170,9 @@ This project is for personal/community use. BoardGameGeek data is used according
 - BoardGameGeek for their excellent API and game database
 - The board gaming community for inspiration
 - IKEA for the Kallax shelf system that inspired the name 📦
+
+
+## CI/CD Pipeline
+
+Kallax uses GitHub Actions for automated building and deployment to the Kubernetes cluster. Changes to the main branch trigger automatic deployment to production.
+
