@@ -4,30 +4,48 @@ param(
     [string]$NewToken
 )
 
-# Get the script directory and find the deployment file
 $scriptPath = $PSScriptRoot
 $deploymentFile = Join-Path $scriptPath "github-runner-deployment.yaml"
 
-# Check if file exists
 if (-not (Test-Path $deploymentFile)) {
     Write-Error "Could not find deployment file at: $deploymentFile"
-    Write-Host "Script is in: $scriptPath"
-    Write-Host "Looking for file: $deploymentFile"
     exit 1
 }
 
 Write-Host "Found deployment file: $deploymentFile"
 
-# Read current content
+# Read all content
 $content = Get-Content $deploymentFile
 
-# Simple replacement of the known old token
-$oldToken = "ACYMZHUBVLCSFOVD5EDQ4RLITFLOS"
-$updatedContent = $content -replace $oldToken, $NewToken
+# Find and replace the token
+$updated = $false
+for ($i = 0; $i -lt $content.Count; $i++) {
+    if ($content[$i] -like "*- name: RUNNER_TOKEN*") {
+        # Next line should have the value
+        if ($i + 1 -lt $content.Count) {
+            $valueLine = $content[$i + 1]
+            if ($valueLine -like "*value:*") {
+                # Extract current token for display
+                $currentToken = ($valueLine -split '"')[1]
+                Write-Host "Replacing token: $currentToken -> $NewToken"
+                
+                # Replace with new token, preserving indentation
+                $indent = $valueLine.Substring(0, $valueLine.IndexOf('value:'))
+                $content[$i + 1] = "${indent}value: `"$NewToken`""
+                $updated = $true
+                break
+            }
+        }
+    }
+}
+
+if (-not $updated) {
+    Write-Error "Could not find RUNNER_TOKEN value to update"
+    exit 1
+}
 
 # Write back to file
-$updatedContent | Set-Content $deploymentFile
+$content | Set-Content $deploymentFile
 
-Write-Host "Updated runner token in deployment file"
+Write-Host "Successfully updated runner token!"
 Write-Host "Now run: kubectl apply -f $deploymentFile"
-Write-Host "Check runner status: kubectl get pods -l app=gamer-gambit-runner"
