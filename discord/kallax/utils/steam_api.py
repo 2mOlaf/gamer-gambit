@@ -16,11 +16,11 @@ class SteamApiClient:
     STORE_URL = "https://store.steampowered.com/api"
     
     def __init__(self, api_key: str = None):
-        self.api_key = api_key or os.getenv(\"STEAM_API_KEY\")
+        self.api_key = api_key or os.getenv("STEAM_API_KEY")
         self.session: Optional[aiohttp.ClientSession] = None
         
         if not self.api_key:
-            logger.warning(\"Steam API key not provided. Some functionality will be limited.\")
+            logger.warning("Steam API key not provided. Some functionality will be limited.")
         
     async def __aenter__(self):
         self.session = aiohttp.ClientSession()
