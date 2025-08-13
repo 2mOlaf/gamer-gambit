@@ -36,3 +36,19 @@ patches:
     - op: replace
       path: /spec/template/spec/containers/0/env/0/valueFrom/secretKeyRef/name
       value: kallax-test-config
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: STEAM_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: kallax-test-config
+            key: STEAM_API_KEY
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: XBOX_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: kallax-test-config
+            key: XBOX_API_KEY

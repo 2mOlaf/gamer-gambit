@@ -7,6 +7,8 @@ from typing import Dict, Any, Optional, List
 import json
 
 from utils.bgg_api import BGGApiClient
+from utils.steam_api import SteamApiClient
+from utils.xbox_api import XboxApiClient
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,7 @@ class UserProfilesCog(commands.Cog):
             await interaction.followup.send("❌ Please provide a valid username")
             return
             
-        # Validate BGG username by checking if it exists
+        # Validate platform username by checking if it exists
         if platform == 'bgg':
             try:
                 async with BGGApiClient() as bgg:
@@ -58,6 +60,42 @@ class UserProfilesCog(commands.Cog):
             except Exception as e:
                 logger.error(f"BGG validation error: {e}")
                 await interaction.followup.send(f"❌ Could not find BGG user '{username}'. Please check the username and try again.")
+                return
+        
+        elif platform == 'steam':
+            try:
+                async with SteamApiClient() as steam:
+                    # Try to resolve Steam ID and get profile
+                    steam_id = await steam.get_steam_id(username)
+                    if not steam_id:
+                        await interaction.followup.send(f"❌ Could not find Steam user '{username}'. Please check the Steam ID or custom URL and try again.")
+                        return
+                    
+                    profile = await steam.get_user_profile(steam_id)
+                    if not profile:
+                        await interaction.followup.send(f"❌ Could not access Steam profile for '{username}'. Profile may be private.")
+                        return
+                    
+                    # Update username to the resolved Steam ID for storage
+                    username = steam_id
+                    
+            except Exception as e:
+                logger.error(f"Steam validation error: {e}")
+                await interaction.followup.send(f"❌ Error validating Steam profile '{username}'. Please try again.")
+                return
+        
+        elif platform == 'xbox':
+            try:
+                async with XboxApiClient() as xbox:
+                    # Try to search for the gamertag
+                    profile = await xbox.search_gamertag(username)
+                    if not profile:
+                        await interaction.followup.send(f"❌ Could not find Xbox gamertag '{username}'. Please check the gamertag and try again.")
+                        return
+                        
+            except Exception as e:
+                logger.error(f"Xbox validation error: {e}")
+                await interaction.followup.send(f"❌ Error validating Xbox gamertag '{username}'. Please try again.")
                 return
         
         # Update user profile
@@ -511,6 +549,372 @@ class UserProfilesCog(commands.Cog):
         embed.set_footer(
             text="BGG Plays Data",
             icon_url="https://cf.geekdo-static.com/images/logos/navbar-logo-bgg-b2.svg"
+        )
+        
+        await interaction.followup.send(embed=embed)
+    
+    @app_commands.command(name='gg-steam-games', description='Show Steam game library for a user')
+    @app_commands.describe(
+        steam_id='Steam ID or custom URL (defaults to your profile)',
+        limit='Number of games to show (1-50)'
+    )
+    async def show_steam_games(self, interaction: discord.Interaction, steam_id: str = None, limit: int = 20):
+        """Show Steam game library for a user"""
+        await interaction.response.defer()
+        
+        # If no steam_id provided, try to get from user's profile
+        if not steam_id:
+            profile = await self.bot.database.get_user_profile(interaction.user.id)
+            if not profile or not profile.get('steam_id'):
+                await interaction.followup.send("❌ Please specify a Steam ID or set your profile with `/gg-profile-set`")
+                return
+            steam_id = profile['steam_id']
+            
+        limit = max(1, min(limit, 50))  # Limit between 1 and 50
+        
+        try:
+            async with SteamApiClient() as steam:
+                # Resolve Steam ID if needed
+                resolved_steam_id = await steam.get_steam_id(steam_id)
+                if not resolved_steam_id:
+                    await interaction.followup.send(f"❌ Could not find Steam user '{steam_id}'")
+                    return
+                
+                # Get user profile and games
+                profile = await steam.get_user_profile(resolved_steam_id)
+                games = await steam.get_user_games(resolved_steam_id)
+                
+                if not profile:
+                    await interaction.followup.send(f"❌ Could not access Steam profile. Profile may be private.")
+                    return
+                    
+                if not games:
+                    await interaction.followup.send(f"❌ No games found for Steam user '{profile['profile_name']}'. Library may be private.")
+                    return
+                    
+                await self._show_steam_games_embed(interaction, games[:limit], profile)
+                
+        except Exception as e:
+            logger.error(f"Error getting Steam games: {e}")
+            await interaction.followup.send(f"❌ Could not retrieve Steam games for user '{steam_id}'. Please check the Steam ID.")
+    
+    @app_commands.command(name='gg-steam-recent', description='Show recently played Steam games')
+    @app_commands.describe(
+        steam_id='Steam ID or custom URL (defaults to your profile)',
+        limit='Number of recent games to show (1-20)'
+    )
+    async def show_steam_recent(self, interaction: discord.Interaction, steam_id: str = None, limit: int = 10):
+        """Show recently played Steam games"""
+        await interaction.response.defer()
+        
+        # If no steam_id provided, try to get from user's profile
+        if not steam_id:
+            profile = await self.bot.database.get_user_profile(interaction.user.id)
+            if not profile or not profile.get('steam_id'):
+                await interaction.followup.send("❌ Please specify a Steam ID or set your profile with `/gg-profile-set`")
+                return
+            steam_id = profile['steam_id']
+            
+        limit = max(1, min(limit, 20))  # Limit between 1 and 20
+        
+        try:
+            async with SteamApiClient() as steam:
+                # Resolve Steam ID if needed
+                resolved_steam_id = await steam.get_steam_id(steam_id)
+                if not resolved_steam_id:
+                    await interaction.followup.send(f"❌ Could not find Steam user '{steam_id}'")
+                    return
+                
+                # Get user profile and recent games
+                profile = await steam.get_user_profile(resolved_steam_id)
+                recent_games = await steam.get_recent_games(resolved_steam_id, limit)
+                
+                if not profile:
+                    await interaction.followup.send(f"❌ Could not access Steam profile. Profile may be private.")
+                    return
+                    
+                if not recent_games:
+                    await interaction.followup.send(f"❌ No recent games found for Steam user '{profile['profile_name']}'")
+                    return
+                    
+                await self._show_steam_recent_embed(interaction, recent_games, profile)
+                
+        except Exception as e:
+            logger.error(f"Error getting recent Steam games: {e}")
+            await interaction.followup.send(f"❌ Could not retrieve recent Steam games for user '{steam_id}'. Please check the Steam ID.")
+    
+    @app_commands.command(name='gg-xbox-games', description='Show Xbox game library for a user')
+    @app_commands.describe(
+        gamertag='Xbox gamertag (defaults to your profile)',
+        limit='Number of games to show (1-50)'
+    )
+    async def show_xbox_games(self, interaction: discord.Interaction, gamertag: str = None, limit: int = 20):
+        """Show Xbox game library for a user"""
+        await interaction.response.defer()
+        
+        # If no gamertag provided, try to get from user's profile
+        if not gamertag:
+            profile = await self.bot.database.get_user_profile(interaction.user.id)
+            if not profile or not profile.get('xbox_gamertag'):
+                await interaction.followup.send("❌ Please specify an Xbox gamertag or set your profile with `/gg-profile-set`")
+                return
+            gamertag = profile['xbox_gamertag']
+            
+        limit = max(1, min(limit, 50))  # Limit between 1 and 50
+        
+        try:
+            async with XboxApiClient() as xbox:
+                # Get user profile and games
+                profile = await xbox.get_user_profile(gamertag)
+                games = await xbox.get_user_games(gamertag, limit)
+                
+                if not profile:
+                    await interaction.followup.send(f"❌ Could not find Xbox gamertag '{gamertag}'")
+                    return
+                    
+                if not games:
+                    await interaction.followup.send(f"❌ No games found for Xbox user '{profile['display_name']}'. Profile may be private or have no games.")
+                    return
+                    
+                await self._show_xbox_games_embed(interaction, games, profile)
+                
+        except Exception as e:
+            logger.error(f"Error getting Xbox games: {e}")
+            await interaction.followup.send(f"❌ Could not retrieve Xbox games for user '{gamertag}'. Please check the gamertag.")
+    
+    @app_commands.command(name='gg-xbox-recent', description='Show recently played Xbox games')
+    @app_commands.describe(
+        gamertag='Xbox gamertag (defaults to your profile)',
+        limit='Number of recent games to show (1-20)'
+    )
+    async def show_xbox_recent(self, interaction: discord.Interaction, gamertag: str = None, limit: int = 10):
+        """Show recently played Xbox games"""
+        await interaction.response.defer()
+        
+        # If no gamertag provided, try to get from user's profile
+        if not gamertag:
+            profile = await self.bot.database.get_user_profile(interaction.user.id)
+            if not profile or not profile.get('xbox_gamertag'):
+                await interaction.followup.send("❌ Please specify an Xbox gamertag or set your profile with `/gg-profile-set`")
+                return
+            gamertag = profile['xbox_gamertag']
+            
+        limit = max(1, min(limit, 20))  # Limit between 1 and 20
+        
+        try:
+            async with XboxApiClient() as xbox:
+                # Get user profile and recent games
+                profile = await xbox.get_user_profile(gamertag)
+                recent_games = await xbox.get_recent_games(gamertag, limit)
+                
+                if not profile:
+                    await interaction.followup.send(f"❌ Could not find Xbox gamertag '{gamertag}'")
+                    return
+                    
+                if not recent_games:
+                    await interaction.followup.send(f"❌ No recent games found for Xbox user '{profile['display_name']}'")
+                    return
+                    
+                await self._show_xbox_recent_embed(interaction, recent_games, profile)
+                
+        except Exception as e:
+            logger.error(f"Error getting recent Xbox games: {e}")
+            await interaction.followup.send(f"❌ Could not retrieve recent Xbox games for user '{gamertag}'. Please check the gamertag.")
+    
+    async def _show_steam_games_embed(self, interaction: discord.Interaction, games: List[Dict], profile: Dict):
+        """Show Steam games in a rich embed"""
+        embed = discord.Embed(
+            title=f"🎮 Steam Library for {profile['profile_name']}",
+            description=f"Showing {len(games)} games (sorted by recent playtime)",
+            color=discord.Color.blue(),
+            url=f"https://steamcommunity.com/profiles/{profile['steam_id']}/games/?tab=all"
+        )
+        
+        # Add profile avatar if available
+        if profile.get('avatar_url'):
+            embed.set_thumbnail(url=profile['avatar_url'])
+        
+        total_playtime = sum(game.get('playtime_forever', 0) for game in games)
+        if total_playtime > 0:
+            hours = total_playtime / 60
+            embed.add_field(
+                name="⏱️ Total Playtime", 
+                value=SteamApiClient.format_playtime(total_playtime),
+                inline=True
+            )
+        
+        for i, game in enumerate(games[:15], 1):  # Limit to 15 games for embed
+            playtime_forever = game.get('playtime_forever', 0)
+            playtime_recent = game.get('playtime_2weeks', 0)
+            
+            game_info = []
+            if playtime_forever > 0:
+                game_info.append(f"⏱️ Total: {SteamApiClient.format_playtime(playtime_forever)}")
+            
+            if playtime_recent > 0:
+                game_info.append(f"🔥 Recent: {SteamApiClient.format_playtime(playtime_recent)}")
+            
+            if not game_info:
+                game_info.append("❌ Never played")
+            
+            embed.add_field(
+                name=f"{i}. {game['name']}",
+                value="\n".join(game_info),
+                inline=True
+            )
+        
+        if len(games) > 15:
+            embed.add_field(
+                name="📎 Note",
+                value=f"... and {len(games) - 15} more games",
+                inline=False
+            )
+        
+        embed.set_footer(
+            text=f"Steam ID: {profile['steam_id']}",
+            icon_url="https://store.steampowered.com/favicon.ico"
+        )
+        
+        await interaction.followup.send(embed=embed)
+    
+    async def _show_steam_recent_embed(self, interaction: discord.Interaction, games: List[Dict], profile: Dict):
+        """Show recent Steam games in a rich embed"""
+        embed = discord.Embed(
+            title=f"🔥 Recent Steam Games for {profile['profile_name']}",
+            description=f"Showing {len(games)} recently played games",
+            color=discord.Color.blue(),
+            url=f"https://steamcommunity.com/profiles/{profile['steam_id']}/games/?tab=recent"
+        )
+        
+        # Add profile avatar if available
+        if profile.get('avatar_url'):
+            embed.set_thumbnail(url=profile['avatar_url'])
+        
+        for i, game in enumerate(games, 1):
+            playtime_forever = game.get('playtime_forever', 0)
+            playtime_recent = game.get('playtime_2weeks', 0)
+            
+            game_info = []
+            if playtime_recent > 0:
+                game_info.append(f"🔥 Last 2 weeks: {SteamApiClient.format_playtime(playtime_recent)}")
+            
+            if playtime_forever > 0:
+                game_info.append(f"⏱️ Total: {SteamApiClient.format_playtime(playtime_forever)}")
+            
+            embed.add_field(
+                name=f"{i}. {game['name']}",
+                value="\n".join(game_info) if game_info else "Recently played",
+                inline=True
+            )
+        
+        embed.set_footer(
+            text=f"Steam ID: {profile['steam_id']}",
+            icon_url="https://store.steampowered.com/favicon.ico"
+        )
+        
+        await interaction.followup.send(embed=embed)
+    
+    async def _show_xbox_games_embed(self, interaction: discord.Interaction, games: List[Dict], profile: Dict):
+        """Show Xbox games in a rich embed"""
+        embed = discord.Embed(
+            title=f"🎯 Xbox Library for {profile['display_name']}",
+            description=f"Showing {len(games)} games with achievements",
+            color=discord.Color.green()
+        )
+        
+        # Add profile avatar if available
+        if profile.get('avatar_url'):
+            embed.set_thumbnail(url=profile['avatar_url'])
+        
+        total_gamerscore = sum(game.get('current_gamerscore', 0) for game in games)
+        max_gamerscore = sum(game.get('max_gamerscore', 0) for game in games)
+        
+        if total_gamerscore > 0:
+            embed.add_field(
+                name="🏆 Total Gamerscore", 
+                value=f"{XboxApiClient.format_gamerscore(total_gamerscore)} / {XboxApiClient.format_gamerscore(max_gamerscore)}",
+                inline=True
+            )
+        
+        for i, game in enumerate(games[:15], 1):  # Limit to 15 games for embed
+            current_score = game.get('current_gamerscore', 0)
+            max_score = game.get('max_gamerscore', 0)
+            progress = game.get('progress_percentage', 0)
+            
+            game_info = []
+            if current_score > 0 or max_score > 0:
+                game_info.append(f"🏆 {current_score} / {max_score} GS")
+            
+            if progress > 0:
+                progress_emoji = XboxApiClient.get_progress_emoji(progress)
+                game_info.append(f"{progress_emoji} {progress:.0f}% complete")
+            
+            current_achievements = game.get('current_achievements', 0)
+            total_achievements = game.get('total_achievements', 0)
+            if total_achievements > 0:
+                game_info.append(f"🏅 {current_achievements}/{total_achievements} achievements")
+            
+            if not game_info:
+                game_info.append("❌ No progress")
+            
+            embed.add_field(
+                name=f"{i}. {game['name']}",
+                value="\n".join(game_info),
+                inline=True
+            )
+        
+        if len(games) > 15:
+            embed.add_field(
+                name="📎 Note",
+                value=f"... and {len(games) - 15} more games",
+                inline=False
+            )
+        
+        embed.set_footer(
+            text=f"Xbox Gamertag: {profile['gamertag']}",
+            icon_url="https://assets.xboxservices.com/assets/XboxOne/favicon.ico"
+        )
+        
+        await interaction.followup.send(embed=embed)
+    
+    async def _show_xbox_recent_embed(self, interaction: discord.Interaction, games: List[Dict], profile: Dict):
+        """Show recent Xbox games in a rich embed"""
+        embed = discord.Embed(
+            title=f"🔥 Recent Xbox Games for {profile['display_name']}",
+            description=f"Showing {len(games)} recently played games (last 30 days)",
+            color=discord.Color.green()
+        )
+        
+        # Add profile avatar if available
+        if profile.get('avatar_url'):
+            embed.set_thumbnail(url=profile['avatar_url'])
+        
+        for i, game in enumerate(games, 1):
+            current_score = game.get('current_gamerscore', 0)
+            max_score = game.get('max_gamerscore', 0)
+            progress = game.get('progress_percentage', 0)
+            last_unlock = game.get('last_unlock')
+            
+            game_info = []
+            if last_unlock:
+                game_info.append(f"📅 Last activity: {last_unlock.strftime('%Y-%m-%d')}")
+            
+            if current_score > 0 or max_score > 0:
+                game_info.append(f"🏆 {current_score} / {max_score} GS")
+            
+            if progress > 0:
+                progress_emoji = XboxApiClient.get_progress_emoji(progress)
+                game_info.append(f"{progress_emoji} {progress:.0f}% complete")
+            
+            embed.add_field(
+                name=f"{i}. {game['name']}",
+                value="\n".join(game_info) if game_info else "Recently played",
+                inline=True
+            )
+        
+        embed.set_footer(
+            text=f"Xbox Gamertag: {profile['gamertag']}",
+            icon_url="https://assets.xboxservices.com/assets/XboxOne/favicon.ico"
         )
         
         await interaction.followup.send(embed=embed)

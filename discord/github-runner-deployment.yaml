@@ -21,7 +21,7 @@ spec:
         - name: REPO_URL
           value: "https://github.com/2mOlaf/gamer-gambit"
         - name: RUNNER_TOKEN
-          value: "PLACEHOLDER_TOKEN_REPLACE_ME"
+          value: "ACYMZHUT3LMPA5H7U7GTPRDITPTYM"
         - name: RUNNER_NAME
           value: "gamer-gambit-k8s-runner"
         - name: RUNNER_WORK_DIRECTORY

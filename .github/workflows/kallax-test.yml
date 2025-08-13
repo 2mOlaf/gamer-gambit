@@ -2,7 +2,7 @@ name: Kallax Test Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ test ]
     paths: 
       - 'discord/kallax/**'
       - '.github/workflows/kallax-test.yml'
