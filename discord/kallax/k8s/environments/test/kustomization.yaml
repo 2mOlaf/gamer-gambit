@@ -27,28 +27,34 @@ patches:
       path: /spec/template/spec/containers/0/env/-
       value:
         name: GITHUB_BRANCH
-        value: "develop"
+        value: "test"
     - op: add
       path: /spec/template/spec/containers/0/env/-
       value:
         name: LOG_LEVEL
         value: "DEBUG"
+    # Update all secret references to use kallax-test-config
     - op: replace
       path: /spec/template/spec/containers/0/env/0/valueFrom/secretKeyRef/name
       value: kallax-test-config
-    - op: add
-      path: /spec/template/spec/containers/0/env/-
-      value:
-        name: STEAM_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: kallax-test-config
-            key: STEAM_API_KEY
-    - op: add
-      path: /spec/template/spec/containers/0/env/-
-      value:
-        name: XBOX_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: kallax-test-config
-            key: XBOX_API_KEY
+    - op: replace
+      path: /spec/template/spec/containers/0/env/1/valueFrom/secretKeyRef/name
+      value: kallax-test-config
+    - op: replace
+      path: /spec/template/spec/containers/0/env/2/valueFrom/secretKeyRef/name
+      value: kallax-test-config
+    - op: replace
+      path: /spec/template/spec/containers/0/env/3/valueFrom/secretKeyRef/name
+      value: kallax-test-config
+    - op: replace
+      path: /spec/template/spec/containers/0/env/4/valueFrom/secretKeyRef/name
+      value: kallax-test-config
+    - op: replace
+      path: /spec/template/spec/containers/0/env/5/valueFrom/secretKeyRef/name
+      value: kallax-test-config
+    - op: replace
+      path: /spec/template/spec/containers/0/env/6/valueFrom/secretKeyRef/name
+      value: kallax-test-config
+    - op: replace
+      path: /spec/template/spec/containers/0/env/7/valueFrom/secretKeyRef/name
+      value: kallax-test-config
