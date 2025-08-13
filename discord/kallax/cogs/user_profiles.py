@@ -50,6 +50,17 @@ class UserProfilesCog(commands.Cog):
             await interaction.followup.send("❌ Please provide a valid username")
             return
             
+        # Input sanitization for security
+        if len(username) > 100:  # Reasonable length limit
+            await interaction.followup.send("❌ Username too long (max 100 characters)")
+            return
+            
+        # Basic validation against malicious input
+        import re
+        if not re.match(r'^[a-zA-Z0-9._-]+$', username) and platform in ['steam', 'xbox']:
+            await interaction.followup.send(f"❌ Invalid characters in {platform} username. Use only letters, numbers, dots, underscores, and hyphens.")
+            return
+            
         # Validate platform username by checking if it exists
         if platform == 'bgg':
             try:
