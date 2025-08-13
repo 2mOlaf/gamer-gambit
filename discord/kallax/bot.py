@@ -41,7 +41,7 @@ class KallaxBot(commands.Bot):
         intents = discord.Intents.default()
         intents.message_content = True
         intents.guilds = True
-        intents.members = True
+        # Removed members intent - not needed for individual user interactions
         
         super().__init__(
             command_prefix=os.getenv('COMMAND_PREFIX', '!'),
@@ -113,7 +113,7 @@ class KallaxBot(commands.Bot):
         metrics = {
             'uptime': time.time() - self.startup_time,
             'guilds': len(self.guilds),
-            'users': sum(guild.member_count or 0 for guild in self.guilds),
+            # Removed user count - members intent not available for privacy
             'commands_registered': len(self.tree.get_commands()),
             'cogs_loaded': len(self._cogs_loaded),
             'database_connections': 1 if self.database and self.database._initialized else 0
