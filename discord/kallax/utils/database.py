@@ -173,7 +173,7 @@ class Database:
     async def _reconnect(self):
         """Reconnect to database"""
         async with self._connection_lock:
-            # try:
+            try:
                 if self.connection:
                     await self.connection.close()
             except:
