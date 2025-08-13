@@ -190,49 +190,230 @@ class UserProfilesCog(commands.Cog):
             logger.error(f"Error showing profile: {e}")
             await interaction.followup.send("❌ An error occurred while retrieving the profile.")
     
-    @app_commands.command(name='gg-collection', description='Show BGG collection for a user')
+    @app_commands.command(name='gg-collection', description='Show your gaming collection across all platforms or specify one')
     @app_commands.describe(
-        username='BGG username (defaults to your profile)',
-        collection_type='Type of collection to show'
+        user='User whose collection to show (defaults to you)',
+        platform='Specific platform to show (defaults to all available)'
     )
-    @app_commands.choices(collection_type=[
-        app_commands.Choice(name='Owned Games', value='own'),
-        app_commands.Choice(name='Wishlist', value='wishlist'),
-        app_commands.Choice(name='For Trade', value='fortrade'),
-        app_commands.Choice(name='Want to Buy', value='want')
+    @app_commands.choices(platform=[
+        app_commands.Choice(name='All Platforms', value='all'),
+        app_commands.Choice(name='BoardGameGeek', value='bgg'),
+        app_commands.Choice(name='Steam', value='steam'),
+        app_commands.Choice(name='Xbox', value='xbox')
     ])
-    async def show_collection(self, interaction: discord.Interaction, username: str = None, collection_type: str = "own"):
-        """Show BGG collection for a user"""
+    async def show_unified_collection(self, interaction: discord.Interaction, user: discord.Member = None, platform: str = 'all'):
+        """Show unified gaming collection across platforms"""
         await interaction.response.defer()
         
-        # If no username provided, try to get from user's profile
-        if not username:
-            profile = await self.bot.database.get_user_profile(interaction.user.id)
-            if not profile or not profile.get('bgg_username'):
-                await interaction.followup.send("❌ Please specify a BGG username or set your profile with `/gg-profile-set`")
-                return
-            username = profile['bgg_username']
-            
-        collection_type = collection_type.lower()
-        valid_types = ['own', 'wishlist', 'fortrade', 'want']
+        target_user = user or interaction.user
+        profile = await self.bot.database.get_user_profile(target_user.id)
         
-        if collection_type not in valid_types:
-            collection_type = 'own'
+        if not profile:
+            if target_user == interaction.user:
+                await interaction.followup.send("❌ You don't have a profile yet. Use `/gg-profile-set` to get started!")
+            else:
+                await interaction.followup.send(f"❌ {target_user.display_name} doesn't have a profile set up yet.")
+            return
             
-        try:
-            async with BGGApiClient() as bgg:
-                collection = await bgg.get_user_collection(username, [collection_type])
+        # Determine which platforms to show
+        platforms_to_show = []
+        if platform == 'all':
+            if profile.get('bgg_username'):
+                platforms_to_show.append('bgg')
+            if profile.get('steam_id'):
+                platforms_to_show.append('steam')
+            if profile.get('xbox_gamertag'):
+                platforms_to_show.append('xbox')
+        elif platform in ['bgg', 'steam', 'xbox']:
+            # Check if user has this platform configured
+            platform_field = {'bgg': 'bgg_username', 'steam': 'steam_id', 'xbox': 'xbox_gamertag'}[platform]
+            if profile.get(platform_field):
+                platforms_to_show.append(platform)
+            else:
+                await interaction.followup.send(f"❌ {target_user.display_name} doesn't have {platform.upper()} configured. Use `/gg-profile-set` to add it.")
+                return
+        
+        if not platforms_to_show:
+            if target_user == interaction.user:
+                await interaction.followup.send("❌ You don't have any gaming platforms configured. Use `/gg-profile-set` to add some!")
+            else:
+                await interaction.followup.send(f"❌ {target_user.display_name} doesn't have any gaming platforms configured.")
+            return
+            
+        await self._show_unified_collection(interaction, target_user, profile, platforms_to_show)
+        
+    async def _show_unified_collection(self, interaction: discord.Interaction, target_user: discord.Member, profile: Dict, platforms_to_show: List[str]):
+        """Show unified collection across multiple platforms with modern UI"""
+        collections = {}
+        platform_info = {}
+        
+        # Collect data from each platform
+        for platform in platforms_to_show:
+            try:
+                if platform == 'bgg':
+                    username = profile['bgg_username']
+                    async with BGGApiClient() as bgg:
+                        collection = await bgg.get_user_collection(username, ['own'])
+                        if collection:
+                            collections[platform] = collection[:10]  # Limit to top 10 for unified view
+                            platform_info[platform] = {
+                                'username': username,
+                                'display_name': username,
+                                'url': f'https://boardgamegeek.com/user/{username}',
+                                'icon': 'https://cf.geekdo-static.com/images/logos/navbar-logo-bgg-b2.svg'
+                            }
+                            
+                elif platform == 'steam':
+                    steam_id = profile['steam_id']
+                    async with SteamApiClient() as steam:
+                        steam_profile = await steam.get_user_profile(steam_id)
+                        games = await steam.get_user_games(steam_id)
+                        if steam_profile and games:
+                            collections[platform] = games[:10]
+                            platform_info[platform] = {
+                                'username': steam_profile['profile_name'],
+                                'display_name': steam_profile['profile_name'],
+                                'steam_id': steam_id,
+                                'url': f"https://steamcommunity.com/profiles/{steam_id}",
+                                'icon': 'https://store.steampowered.com/favicon.ico',
+                                'avatar': steam_profile.get('avatar_url')
+                            }
+                            
+                elif platform == 'xbox':
+                    gamertag = profile['xbox_gamertag']
+                    async with XboxApiClient() as xbox:
+                        xbox_profile = await xbox.get_user_profile(gamertag)
+                        games = await xbox.get_user_games(gamertag, 10)
+                        if xbox_profile and games:
+                            collections[platform] = games
+                            platform_info[platform] = {
+                                'username': gamertag,
+                                'display_name': xbox_profile.get('display_name', gamertag),
+                                'url': f'https://www.xbox.com/en-US/Profile?GamerTag={gamertag}',
+                                'icon': 'https://assets.xboxservices.com/assets/XboxOne/favicon.ico',
+                                'avatar': xbox_profile.get('avatar_url')
+                            }
+                            
+            except Exception as e:
+                logger.error(f"Error fetching {platform} collection: {e}")
+                continue
+        
+        if not collections:
+            await interaction.followup.send(f"❌ Could not retrieve any collections for {target_user.display_name}. Profiles may be private or have no games.")
+            return
+            
+        # Create unified collection embed
+        await self._create_unified_collection_embed(interaction, target_user, collections, platform_info)
+        
+    async def _create_unified_collection_embed(self, interaction: discord.Interaction, target_user: discord.Member, collections: Dict, platform_info: Dict):
+        """Create a modern, organized embed showing all platform collections"""
+        # Main embed with user info
+        embed = discord.Embed(
+            title=f"🎮 Gaming Collection",
+            description=f"**{target_user.display_name}'s** multi-platform collection",
+            color=discord.Color.gold()
+        )
+        
+        # Set user avatar
+        embed.set_author(
+            name=target_user.display_name,
+            icon_url=target_user.display_avatar.url
+        )
+        
+        # Add platform sections with modern borders
+        total_games = 0
+        
+        for platform, games in collections.items():
+            info = platform_info[platform]
+            
+            if platform == 'bgg':
+                # BoardGameGeek section
+                bgg_lines = []
+                bgg_lines.append(f"**👤 Profile:** [{info['display_name']}]({info['url']})")
+                bgg_lines.append(f"**📚 Games:** {len(games)} shown")
+                bgg_lines.append("\n**🎲 Recent Games:**")
                 
-                if not collection:
-                    type_name = collection_type.replace('fortrade', 'for trade').title()
-                    await interaction.followup.send(f"❌ No games found in {username}'s {type_name} collection")
-                    return
-                    
-                await self._show_collection_pages_interaction(interaction, collection, username, collection_type)
+                for i, game in enumerate(games[:5], 1):
+                    year = f" ({game['year_published']})" if game.get('year_published') else ""
+                    rating = f" ⭐{game['rating']:.1f}" if game.get('rating') and game['rating'] > 0 else ""
+                    bgg_lines.append(f"{i}. **{game['name']}**{year}{rating}")
                 
-        except Exception as e:
-            logger.error(f"Error getting collection: {e}")
-            await interaction.followup.send(f"❌ Could not retrieve collection for user '{username}'. Please check the username.")
+                embed.add_field(
+                    name="╔═══ 🎲 BoardGameGeek ═══╗",
+                    value="\n".join(bgg_lines),
+                    inline=False
+                )
+                total_games += len(games)
+                
+            elif platform == 'steam':
+                # Steam section
+                steam_lines = []
+                steam_lines.append(f"**👤 Profile:** [{info['display_name']}]({info['url']})")
+                if info.get('steam_id'):
+                    steam_lines.append(f"**🆔 Steam ID:** `{info['steam_id']}`")
+                steam_lines.append(f"**🎮 Games:** {len(games)} shown")
+                steam_lines.append("\n**⏱️ Most Played:**")
+                
+                for i, game in enumerate(games[:5], 1):
+                    playtime = SteamApiClient.format_playtime(game.get('playtime_forever', 0))
+                    steam_lines.append(f"{i}. **{game['name']}** - {playtime}")
+                
+                embed.add_field(
+                    name="╔═══ 🎮 Steam ═══╗",
+                    value="\n".join(steam_lines),
+                    inline=False
+                )
+                total_games += len(games)
+                
+            elif platform == 'xbox':
+                # Xbox section  
+                xbox_lines = []
+                xbox_lines.append(f"**👤 Profile:** [{info['display_name']}]({info['url']})")
+                xbox_lines.append(f"**🎯 Gamertag:** `{info['username']}`")
+                xbox_lines.append(f"**🏆 Games:** {len(games)} shown")
+                
+                total_gamerscore = sum(g.get('current_gamerscore', 0) for g in games)
+                if total_gamerscore > 0:
+                    formatted_score = XboxApiClient.format_gamerscore(total_gamerscore)
+                    xbox_lines.append(f"**🏆 Gamerscore:** {formatted_score}")
+                
+                xbox_lines.append("\n**🎯 Top Games:**")
+                
+                for i, game in enumerate(games[:5], 1):
+                    score = game.get('current_gamerscore', 0)
+                    progress = game.get('progress_percentage', 0)
+                    progress_emoji = XboxApiClient.get_progress_emoji(progress)
+                    xbox_lines.append(f"{i}. **{game['name']}** {progress_emoji} {progress:.0f}%")
+                
+                embed.add_field(
+                    name="╔═══ 🎯 Xbox ═══╗",
+                    value="\n".join(xbox_lines),
+                    inline=False
+                )
+                total_games += len(games)
+        
+        # Add summary footer
+        platform_names = []
+        if 'bgg' in collections:
+            platform_names.append('BoardGameGeek')
+        if 'steam' in collections:
+            platform_names.append('Steam')
+        if 'xbox' in collections:
+            platform_names.append('Xbox')
+            
+        platforms_text = ' • '.join(platform_names)
+        embed.set_footer(
+            text=f"📊 {total_games} games shown across {platforms_text} • Use specific platform commands for full collections",
+            icon_url=target_user.display_avatar.url
+        )
+        
+        # Set thumbnail to first available platform avatar
+        for platform in ['steam', 'xbox']:
+            if platform in platform_info and platform_info[platform].get('avatar'):
+                embed.set_thumbnail(url=platform_info[platform]['avatar'])
+                break
+        
+        await interaction.followup.send(embed=embed)
     
     async def _show_collection_pages_interaction(self, interaction: discord.Interaction, collection: List[Dict], username: str, collection_type: str):
         """Show collection with pagination for interactions"""
