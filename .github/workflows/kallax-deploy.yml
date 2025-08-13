@@ -2,7 +2,7 @@ name: Kallax Discord Bot CI/CD
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, test ]
     paths: 
       - 'discord/kallax/**'
       - '.github/workflows/kallax-deploy.yml'
@@ -185,7 +185,7 @@ jobs:
   deploy-test:
     needs: build-and-test
     runs-on: [self-hosted, kubernetes, discord-bot]
-    if: github.ref == 'refs/heads/develop' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'test')
+    if: github.ref == 'refs/heads/test' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'test')
     environment: 
       name: test
     
