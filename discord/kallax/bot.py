@@ -56,8 +56,8 @@ class KallaxBot(commands.Bot):
         self.synced = False
         self.startup_time = time.time()
         self.health_server = None
-        self.essential_cogs = ['user_profiles']  # Only essential cogs loaded at startup
-        self.lazy_cogs = ['game_search']  # Loaded on-demand
+        self.essential_cogs = ['user_profiles', 'game_search']  # Essential cogs loaded at startup
+        self.lazy_cogs = []  # Loaded on-demand
         self._cogs_loaded = set()
         
     async def setup_hook(self):

@@ -331,9 +331,11 @@ class UserProfilesCog(commands.Cog):
                 bgg_lines = []
                 bgg_lines.append(f"**👤 Profile:** [{info['display_name']}]({info['url']})")
                 bgg_lines.append(f"**📚 Games:** {len(games)} shown")
-                bgg_lines.append("\n**🎲 Recent Games:**")
+                bgg_lines.append("\n**🎲 Collection (A-Z):**")
                 
-                for i, game in enumerate(games[:5], 1):
+                # Sort alphabetically for collection view
+                sorted_games = sorted(games, key=lambda x: x['name'].lower())
+                for i, game in enumerate(sorted_games[:5], 1):
                     year = f" ({game['year_published']})" if game.get('year_published') else ""
                     rating = f" ⭐{game['rating']:.1f}" if game.get('rating') and game['rating'] > 0 else ""
                     bgg_lines.append(f"{i}. **{game['name']}**{year}{rating}")
@@ -912,6 +914,44 @@ class UserProfilesCog(commands.Cog):
         except Exception as e:
             logger.error(f"Error getting recent Xbox games: {e}")
             await interaction.followup.send(f"❌ Could not retrieve recent Xbox games for user '{gamertag}'. Please check the gamertag.")
+    
+    @app_commands.command(name='gg-bgg-collection', description='Show full BGG collection with pagination')
+    @app_commands.describe(
+        username='BGG username (defaults to your profile)',
+        collection_type='Type of collection to show'
+    )
+    @app_commands.choices(collection_type=[
+        app_commands.Choice(name='Owned Games', value='own'),
+        app_commands.Choice(name='Wishlist', value='wishlist'),
+        app_commands.Choice(name='For Trade', value='fortrade'),
+        app_commands.Choice(name='Want to Play', value='want')
+    ])
+    async def show_bgg_collection(self, interaction: discord.Interaction, username: str = None, collection_type: str = 'own'):
+        """Show full BGG collection with alphabetical sorting and pagination"""
+        await interaction.response.defer()
+        
+        # If no username provided, try to get from user's profile
+        if not username:
+            profile = await self.bot.database.get_user_profile(interaction.user.id)
+            if not profile or not profile.get('bgg_username'):
+                await interaction.followup.send("❌ Please specify a BGG username or set your profile with `/gg-profile-set`")
+                return
+            username = profile['bgg_username']
+            
+        try:
+            async with BGGApiClient() as bgg:
+                collection = await bgg.get_user_collection(username, [collection_type])
+                
+                if not collection:
+                    collection_name = collection_type.replace('fortrade', 'for trade').title()
+                    await interaction.followup.send(f"❌ No {collection_name.lower()} found for user '{username}'")
+                    return
+                    
+                await self._show_collection_pages_interaction(interaction, collection, username, collection_type)
+                
+        except Exception as e:
+            logger.error(f"Error getting BGG collection: {e}")
+            await interaction.followup.send(f"❌ Could not retrieve BGG collection for user '{username}'. Please check the username.")
     
     async def _show_steam_games_embed(self, interaction: discord.Interaction, games: List[Dict], profile: Dict):
         """Show Steam games in a rich embed"""
