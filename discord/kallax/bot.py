@@ -125,7 +125,36 @@ class KallaxBot(commands.Bot):
         
     async def load_essential_cogs(self):
         """Load only essential cogs at startup for faster boot"""
+        # Log environment information for debugging
+        import sys
+        logger.info(f"Python version: {sys.version}")
+        logger.info(f"Current working directory: {os.getcwd()}")
+        
+        # Check if required packages are available
+        try:
+            import aiohttp
+            logger.info(f"aiohttp version: {aiohttp.__version__}")
+        except ImportError as e:
+            logger.error(f"aiohttp not available: {e}")
+            
+        try:
+            import xmltodict
+            logger.info("xmltodict available")
+        except ImportError as e:
+            logger.error(f"xmltodict not available: {e}")
+            
+        try:
+            from bs4 import BeautifulSoup
+            logger.info("beautifulsoup4 available")
+        except ImportError as e:
+            logger.error(f"beautifulsoup4 not available: {e}")
+        
         cogs_dir = Path(__file__).parent / 'cogs'
+        logger.info(f"Looking for cogs in: {cogs_dir.absolute()}")
+        logger.info(f"Cogs directory exists: {cogs_dir.exists()}")
+        if cogs_dir.exists():
+            cog_files = list(cogs_dir.glob('*.py'))
+            logger.info(f"Found {len(cog_files)} cog files: {[f.name for f in cog_files]}")
         
         for cog_name in self.essential_cogs:
             cog_file = cogs_dir / f'{cog_name}.py'
@@ -137,6 +166,9 @@ class KallaxBot(commands.Bot):
                     logger.info(f"Loaded essential cog: {full_cog_name}")
                 except Exception as e:
                     logger.error(f"Failed to load essential cog {full_cog_name}: {e}")
+                    # Log full traceback for debugging
+                    import traceback
+                    logger.error(f"Full traceback for {full_cog_name} loading failure:\n{traceback.format_exc()}")
                     
     async def ensure_cog_loaded(self, cog_name: str):
         """Lazy load cog if not already loaded"""
