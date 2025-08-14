@@ -3,7 +3,8 @@ from discord import app_commands
 from discord.ext import commands
 import asyncio
 import logging
-from typing import List, Dict, Any, Optional
+import difflib
+from typing import List, Dict, Any, Optional, Tuple
 
 from utils.bgg_api import BGGApiClient
 from utils.steam_api import SteamApiClient
@@ -44,7 +45,8 @@ class GameSearchCog(commands.Cog):
             if catalog == 'all' or catalog == 'bgg':
                 try:
                     async with BGGApiClient() as bgg:
-                        bgg_results = await bgg.search_games(query.strip())
+                        # Include ratings for better search result display
+                        bgg_results = await bgg.search_games(query.strip(), include_ratings=True)
                         for result in bgg_results[:5]:  # Limit BGG results when searching all
                             result['platform'] = 'bgg'
                             result['platform_name'] = 'BoardGameGeek'
@@ -107,27 +109,39 @@ class GameSearchCog(commands.Cog):
         platform_text = catalog.upper() if catalog != 'all' else 'All Platforms'
         embed = discord.Embed(
             title=f"🎮 Search Results for '{original_query}' ({platform_text})",
-            description="React with a number to see detailed information about that game.",
+            description="React with a number to see detailed information about that game.\n\n🌟 = Most Relevant Result",
             color=discord.Color.blue()
         )
         
-        for i, game in enumerate(results[:10]):
+        # Sort results by relevance score and mark the most relevant
+        scored_results = self._score_search_results(results, original_query, catalog)
+        
+        for i, (game, relevance_score) in enumerate(scored_results[:10]):
+            # Mark the most relevant result
+            relevance_indicator = "🌟 " if i == 0 and relevance_score > 0.7 else ""
+            
             # Format game title and info based on platform
             if game['platform'] == 'bgg':
                 year_str = f" ({game['year_published']})" if game.get('year_published') else ""
-                info_text = f"BGG ID: {game['bgg_id']}"
+                # Add rating if available for enhanced info
+                rating_str = f" | ⭐ {game.get('rating', 0):.1f}" if game.get('rating') else ""
+                info_text = f"BGG ID: {game['bgg_id']}{rating_str}"
             elif game['platform'] == 'steam':
                 year_str = f" ({game['release_date']})" if game.get('release_date') else ""
-                info_text = f"Steam App ID: {game['app_id']} | Price: {game.get('price', 'N/A')}"
+                price_str = f" | {game.get('price', 'N/A')}" if game.get('price') != 'N/A' else ""
+                # Add metacritic score if available
+                score_str = f" | 📊 {game.get('metacritic_score')}" if game.get('metacritic_score') else ""
+                info_text = f"Steam App ID: {game['app_id']}{price_str}{score_str}"
             elif game['platform'] == 'xbox':
                 year_str = f" ({game['release_date']})" if game.get('release_date') else ""
-                info_text = f"Xbox ID: {game['product_id']} | Price: {game.get('price', 'N/A')}"
+                price_str = f" | {game.get('price', 'N/A')}" if game.get('price') != 'N/A' else ""
+                info_text = f"Xbox ID: {game.get('product_id', 'N/A')}{price_str}"
             else:
                 year_str = ""
                 info_text = "Unknown platform"
             
             embed.add_field(
-                name=f"{number_emojis[i]} {game['platform_emoji']} {game['name']}{year_str}",
+                name=f"{number_emojis[i]} {relevance_indicator}{game['platform_emoji']} {game['name']}{year_str}",
                 value=f"**{game['platform_name']}** - {info_text}",
                 inline=False
             )
@@ -137,22 +151,22 @@ class GameSearchCog(commands.Cog):
         message = await interaction.followup.send(embed=embed)
         
         # Add reaction buttons
-        for i in range(min(len(results), 10)):
+        for i in range(min(len(scored_results), 10)):
             await message.add_reaction(number_emojis[i])
             
         def check(reaction, user):
             return (
                 user == interaction.user and
                 reaction.message.id == message.id and
-                str(reaction.emoji) in number_emojis[:len(results)]
+                str(reaction.emoji) in number_emojis[:len(scored_results)]
             )
             
         try:
             reaction, user = await self.bot.wait_for('reaction_add', timeout=60.0, check=check)
             
-            # Get selected game index
+            # Get selected game index from scored results
             selected_index = number_emojis.index(str(reaction.emoji))
-            selected_game = results[selected_index]
+            selected_game = scored_results[selected_index][0]  # Get the game from the tuple
             
             # Show detailed info based on platform
             await self._show_platform_game_details(interaction, selected_game)
@@ -504,6 +518,60 @@ class GameSearchCog(commands.Cog):
         )
         
         return embed
+    
+    def _score_search_results(self, results: List[Dict[str, Any]], query: str, catalog: str) -> List[Tuple[Dict[str, Any], float]]:
+        """Score and sort search results by relevance"""
+        scored_results = []
+        query_lower = query.lower().strip()
+        
+        for result in results:
+            score = 0.0
+            name_lower = result.get('name', '').lower()
+            
+            # Exact match gets highest score
+            if name_lower == query_lower:
+                score += 1.0
+            # Start with query gets high score
+            elif name_lower.startswith(query_lower):
+                score += 0.9
+            # Contains query gets good score
+            elif query_lower in name_lower:
+                score += 0.8
+            # Use similarity ratio for fuzzy matching
+            else:
+                similarity = difflib.SequenceMatcher(None, query_lower, name_lower).ratio()
+                score += similarity * 0.7
+            
+            # Platform-specific bonuses
+            if catalog == 'bgg' and result.get('platform') == 'bgg':
+                score += 0.1
+                # BGG games with higher ratings get bonus
+                if result.get('rating'):
+                    score += min(result['rating'] / 10 * 0.1, 0.1)
+            elif catalog == 'steam' and result.get('platform') == 'steam':
+                score += 0.1
+            elif catalog == 'xbox' and result.get('platform') == 'xbox':
+                score += 0.1
+            elif catalog == 'all':
+                # For multi-platform search, slightly favor BGG for board games
+                if result.get('platform') == 'bgg':
+                    score += 0.05
+            
+            # Year bonus (more recent games get slight bonus)
+            if result.get('year_published'):
+                year = result['year_published']
+                if isinstance(year, str) and year.isdigit():
+                    year = int(year)
+                if isinstance(year, int) and year > 2000:
+                    # Bonus for games from 2000 onwards, max 0.1
+                    year_bonus = min((year - 2000) / 200, 0.1)
+                    score += year_bonus
+            
+            scored_results.append((result, score))
+        
+        # Sort by score (highest first)
+        scored_results.sort(key=lambda x: x[1], reverse=True)
+        return scored_results
     
     @staticmethod
     def _get_weight_description(weight: float) -> str:

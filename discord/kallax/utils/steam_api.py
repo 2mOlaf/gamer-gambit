@@ -175,7 +175,7 @@ class SteamApiClient:
             return []
             
     async def search_games(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Search Steam games (basic implementation using Steam store search)"""
+        """Search Steam games with enriched data"""
         try:
             # Use Steam store search API
             url = f"{self.STORE_URL}/storesearch/"
@@ -193,13 +193,26 @@ class SteamApiClient:
                     result = []
                     for item in items:
                         if item.get('type') == 'app':  # Only games, not DLC/bundles
-                            result.append({
+                            # Get basic search result data
+                            game_data = {
                                 'app_id': item.get('id'),
                                 'name': item.get('name', 'Unknown Game'),
                                 'price': item.get('price', {}).get('final_formatted', 'N/A'),
                                 'release_date': item.get('release_date'),
-                                'capsule_image': item.get('tiny_image')
-                            })
+                                'capsule_image': item.get('tiny_image'),
+                                'metacritic_score': item.get('metascore'),
+                                'type': item.get('type')
+                            }
+                            
+                            # Try to get enhanced data if available in search results
+                            if item.get('header_image'):
+                                game_data['header_image'] = item.get('header_image')
+                            if item.get('discount'):
+                                game_data['discount'] = item.get('discount')
+                            if item.get('platforms'):
+                                game_data['platforms'] = item.get('platforms')
+                            
+                            result.append(game_data)
                     return result
             return []
             
