@@ -49,6 +49,8 @@ spec:
             secretKeyRef:
               key: COMMAND_PREFIX
               name: jarvfjallet-config
+        - name: ENVIRONMENT
+          value: "production"
         resources:
           requests:
             cpu: 50m

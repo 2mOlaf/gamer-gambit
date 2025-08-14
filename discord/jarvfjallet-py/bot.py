@@ -39,7 +39,10 @@ class JarvajalletBot(commands.Bot):
     
     def __init__(self):
         intents = discord.Intents.default()
-        intents.message_content = True
+        # Only enable message content intent if not in production environment
+        # This allows the bot to run in production without privileged intents
+        if os.getenv('ENVIRONMENT', 'production').lower() != 'production':
+            intents.message_content = True
         intents.guilds = True
         
         super().__init__(
