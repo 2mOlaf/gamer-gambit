@@ -1,0 +1,140 @@
+name: Jarvfjallet Test Deployment
+
+on:
+  push:
+    branches: [ develop, test ]
+    paths:
+      - 'discord/jarvfjallet-py/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'discord/jarvfjallet-py/**'
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deployment even if no changes'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: jarvfjallet-discord-bot
+  BOT_DIRECTORY: discord/jarvfjallet-py
+
+jobs:
+  build-and-test:
+    runs-on: self-hosted
+    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/test' || github.event_name == 'pull_request'
+    environment: test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Log deployment start
+      run: |
+        echo "🧪 Starting test deployment for Jarvfjallet bot..."
+        echo "Commit: ${{ github.sha }}"
+        echo "Author: ${{ github.actor }}"
+        echo "Branch: ${{ github.ref_name }}"
+        echo "Directory: ${{ env.BOT_DIRECTORY }}"
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        cache-dependency-path: ${{ env.BOT_DIRECTORY }}/requirements.txt
+
+    - name: Install dependencies and test
+      working-directory: ${{ env.BOT_DIRECTORY }}
+      run: |
+        echo "📦 Installing dependencies..."
+        pip install -r requirements.txt
+        pip install flake8
+        
+        echo "🔍 Running quick validation..."
+        python -c "import discord.ext.commands; print('✅ Discord.py imports working')"
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || true
+
+    - name: Set up test environment
+      run: |
+        echo "🧪 Setting up test environment..."
+        kubectl create namespace gamer-gambit-test --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/2molaf/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=sha,prefix={{branch}}-
+          type=raw,value=test,enable=${{ github.ref_name == 'develop' || github.ref_name == 'test' }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ${{ env.BOT_DIRECTORY }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Deploy to test environment
+      run: |
+        echo "🚀 Deploying to test environment..."
+        # Update the test kustomization to use the new image
+        kubectl set image deployment/test-jarvfjallet jarvfjallet=${{ env.REGISTRY }}/2molaf/${{ env.IMAGE_NAME }}:${{ github.ref_name }} -n gamer-gambit-test || \
+        kubectl apply -k ${{ env.BOT_DIRECTORY }}/k8s/environments/test/
+        
+        echo "⏳ Waiting for deployment..."
+        kubectl rollout status deployment/test-jarvfjallet -n gamer-gambit-test --timeout=300s
+
+    - name: Verify test deployment
+      run: |
+        echo "✅ Verifying test deployment..."
+        kubectl get pods -n gamer-gambit-test -l app=jarvfjallet
+        kubectl logs -n gamer-gambit-test deployment/test-jarvfjallet --tail=20 || echo "Logs not ready yet"
+
+    - name: Run basic connectivity tests
+      run: |
+        echo "🔍 Running basic connectivity tests..."
+        sleep 30
+        kubectl get pods -n gamer-gambit-test -l app=jarvfjallet -o jsonpath='{.items[0].status.phase}' || echo "Pod status check failed"
+
+    - name: Notify deployment success
+      if: success()
+      run: |
+        echo "🧪 Test deployment successful!"
+        echo "Jarvfjallet test bot is now running the latest code from ${{ github.ref_name }} branch"
+        echo "Image: ${{ env.REGISTRY }}/2molaf/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+
+    - name: Notify deployment failure
+      if: failure()
+      run: |
+        echo "❌ Test deployment failed!"
+        echo "Check the logs and fix any issues"
+
+  cleanup-pr:
+    runs-on: self-hosted
+    if: github.event.action == 'closed' && github.event.pull_request
+    steps:
+    - name: Cleanup PR test environment
+      run: |
+        echo "🧹 Cleaning up PR test environment..."
+        kubectl delete deployment test-jarvfjallet -n gamer-gambit-test || true

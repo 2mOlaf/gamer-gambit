@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gamer-gambit-test
+  labels:
+    name: gamer-gambit-test
+    purpose: discord-bots-test

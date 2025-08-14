@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jarvfjallet
+  namespace: gamer-gambit
+  labels:
+    app: jarvfjallet
+    component: discord-bot
+    version: v1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jarvfjallet
+      component: discord-bot
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: jarvfjallet
+        component: discord-bot
+        version: v1.0.0
+    spec:
+      containers:
+      - name: jarvfjallet
+        image: ghcr.io/2molaf/jarvfjallet-discord-bot:main
+        imagePullPolicy: Always
+        workingDir: /app
+        env:
+        - name: DISCORD_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: DISCORD_TOKEN
+              name: jarvfjallet-config
+        - name: DISCORD_GUILD_ID
+          valueFrom:
+            secretKeyRef:
+              key: DISCORD_GUILD_ID
+              name: jarvfjallet-config
+              optional: true
+        - name: DATABASE_PATH
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_PATH
+              name: jarvfjallet-config
+        - name: COMMAND_PREFIX
+          valueFrom:
+            secretKeyRef:
+              key: COMMAND_PREFIX
+              name: jarvfjallet-config
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        volumeMounts:
+        - name: data-volume
+          mountPath: /app/data
+        livenessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - pidof python
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - pidof python && test -f /app/data/jarvfjallet.db
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 5
+      volumes:
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: jarvfjallet-data
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
