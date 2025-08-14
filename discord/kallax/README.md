@@ -46,49 +46,20 @@ Kallax is a comprehensive Discord bot designed for gaming communities, with a fo
 - Recommendation engine based on user preferences
 - Game night planning tools
 
-## Setup
+## Quick Setup
 
-### Prerequisites
-- Python 3.8 or higher
-- Discord bot token (create at https://discord.com/developers/applications)
-- Discord server with appropriate permissions
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   cd "\\urdarbrunnr.gradin.lan\Projects\GitHub\2mOlaf\gamer-gambit\discord\kallax"
-   ```
-
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Configure environment**
-   ```bash
-   cp .env.example .env
-   ```
-   Edit `.env` and add your Discord bot token and other configuration.
-
-4. **Run the bot**
-   ```bash
-   python bot.py
-   ```
-
-### Environment Configuration
-
-Copy `.env.example` to `.env` and configure:
-
-```env
-# Required
-DISCORD_TOKEN=your_discord_bot_token_here
-
-# Optional
-DISCORD_GUILD_ID=your_guild_id_here
-DATABASE_PATH=./data/kallax.db
-COMMAND_PREFIX=!
+### Local Development
+```bash
+# Clone and setup
+cd discord/kallax
+cp .env.example .env
+# Edit .env with your Discord bot token
+pip install -r requirements.txt
+python bot.py
 ```
+
+### Production Deployment
+See [k8s/README.md](k8s/README.md) for Kubernetes deployment instructions.
 
 ## Commands
 

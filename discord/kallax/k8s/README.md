@@ -1,169 +1,126 @@
-# Kubernetes Deployment for Kallax Discord Bot
+# Kallax Kubernetes Deployment
 
-This directory contains Kubernetes manifests to deploy the Kallax Discord bot to your Kubernetes cluster in the `gamer-gambit` namespace.
+This directory contains Kubernetes manifests for deploying the Kallax Discord bot.
 
 ## Quick Start
 
-### Windows (PowerShell)
-```powershell
-cd k8s
-.\deploy.ps1
+### 1. Setup Secrets (Required First!)
+```bash
+# Use the setup script (recommended)
+./setup-secrets.ps1  # Windows
+./setup-secrets.sh   # Linux/macOS
+
+# Edit the generated secrets.yaml with your credentials
+kubectl apply -f secrets.yaml
 ```
 
-### Linux/Mac (Bash)
+### 2. Deploy to Production
 ```bash
-cd k8s
-chmod +x deploy.sh
-./deploy.sh
+# Automatic via GitHub Actions (recommended)
+git push origin main
+
+# Manual deployment
+kubectl apply -k base/
 ```
 
-The script will prompt you for your Discord bot token and optionally your guild ID.
-
-## Manual Deployment
-
-If you prefer to deploy manually:
-
-1. **Create namespace:**
-   ```bash
-   kubectl apply -f namespace.yaml
-   ```
-
-2. **Configure secrets:**
-   Edit `secret.yaml` with your Discord bot token and other configuration, then:
-   ```bash
-   kubectl apply -f secret.yaml
-   ```
-
-3. **Create storage:**
-   ```bash
-   kubectl apply -f pvc.yaml
-   ```
-
-4. **Deploy the bot:**
-   ```bash
-   kubectl apply -f deployment-local.yaml
-   kubectl apply -f service.yaml
-   ```
-
-## File Overview
-
-- **`namespace.yaml`** - Creates the `gamer-gambit` namespace
-- **`secret.yaml`** - Template for bot configuration (Discord token, etc.)
-- **`pvc.yaml`** - Persistent volume claim for database storage
-- **`deployment-local.yaml`** - Main deployment using local filesystem
-- **`deployment.yaml`** - Alternative deployment using Git (requires setup)
-- **`service.yaml`** - Service for potential monitoring
-- **`deploy.ps1`** - Automated PowerShell deployment script  
-- **`deploy.sh`** - Automated Bash deployment script
-
-## Deployment Options
-
-### Option 1: Local Files (Recommended)
-Uses `deployment-local.yaml` which mounts the source code directly from NFS (`mimisbrunnr.gradin.lan`). This allows the bot to access live code changes and ensures persistence across pod restarts.
-
-### Option 2: Git Repository
-Uses `deployment.yaml` with an init container that clones from a Git repository. Requires setting up a Git repo and modifying the deployment YAML.
-
-## Configuration
-
-The bot is configured via Kubernetes secrets:
-
-### Required Configuration (`kallax-config` secret):
-- `DISCORD_TOKEN` - Your Discord bot token
-- `DATABASE_PATH` - Path to SQLite database (default: `/app/data/kallax.db`)
-- `BGG_API_BASE_URL` - BoardGameGeek API URL
-- `COMMAND_PREFIX` - Bot command prefix (default: `!`)
-
-### Optional Configuration (`kallax-api-keys` secret):
-- `DISCORD_GUILD_ID` - Specific guild ID for bot
-- `STEAM_API_KEY` - Steam API key for Steam integration
-- `XBOX_API_KEY` - Xbox API key for Xbox integration
-
-## Resource Requirements
-
-- **Memory**: 256Mi requested, 512Mi limit
-- **CPU**: 100m requested, 500m limit
-- **Storage**: 1Gi persistent volume for database
-
-## Monitoring
-
-### Check deployment status:
+### 3. Deploy to Test Environment
 ```bash
+# Automatic via GitHub Actions (recommended) 
+git push origin test
+
+# Manual deployment
+kubectl apply -k environments/test/
+```
+
+## File Structure
+
+```
+k8s/
+├── base/                          # Base Kubernetes manifests
+│   ├── deployment.yaml           # Main deployment configuration
+│   ├── service.yaml              # Kubernetes service
+│   ├── namespace.yaml            # Namespace definition
+│   └── kustomization.yaml        # Kustomization config
+├── environments/                  # Environment-specific configs
+│   └── test/
+│       └── kustomization.yaml   # Test environment overrides
+├── secrets.template.yaml         # Template for creating secrets
+├── setup-secrets.ps1            # Windows setup script
+├── setup-secrets.sh             # Linux setup script
+└── SECRETS-README.md            # Secrets management guide
+```
+
+## Prerequisites
+
+Before deployment will work:
+
+1. **Core Infrastructure**: MetalLB, Ingress, Storage (from ansuz-k8s repo)
+2. **GitHub Runner**: Self-hosted runner deployed and online
+3. **Secrets**: Discord tokens and API keys configured
+4. **Container Registry**: Access to GitHub Container Registry
+
+## Environments
+
+### Production (`gamer-gambit` namespace)
+- **Trigger**: Push to `main` branch
+- **Secrets**: `kallax-config`, `kallax-api-keys`
+- **Image Tag**: `latest`
+
+### Test (`gamer-gambit-test` namespace)  
+- **Trigger**: Push to `test` branch
+- **Secrets**: `kallax-test-config`, `kallax-test-api-keys`
+- **Image Tag**: `test`
+
+## Verification
+
+```bash
+# Check deployment status
 kubectl get pods -n gamer-gambit
-kubectl get deployments -n gamer-gambit
-```
+kubectl get pods -n gamer-gambit-test
 
-### View logs:
-```bash
-kubectl logs -n gamer-gambit deployment/kallax -f
-```
+# View logs
+kubectl logs -n gamer-gambit deployment/kallax --tail=20
+kubectl logs -n gamer-gambit-test deployment/test-kallax --tail=20
 
-### Check events:
-```bash
-kubectl get events -n gamer-gambit --sort-by=.metadata.creationTimestamp
-```
-
-## Updating the Bot
-
-### Restart deployment (picks up code changes):
-```bash
-kubectl rollout restart deployment/kallax -n gamer-gambit
-```
-
-### Update configuration:
-```bash
-# Edit and reapply secrets
-kubectl apply -f secret.yaml
-# Restart to pick up changes
-kubectl rollout restart deployment/kallax -n gamer-gambit
+# Test bot functionality
+# - Bot should appear online in Discord
+# - Commands like `!search wingspan` should work
 ```
 
 ## Troubleshooting
 
-### Pod not starting:
-1. Check pod status: `kubectl describe pod -n gamer-gambit <pod-name>`
-2. Check logs: `kubectl logs -n gamer-gambit <pod-name>`
-3. Verify secrets exist: `kubectl get secrets -n gamer-gambit`
+### Common Issues
 
-### Bot not responding:
-1. Verify Discord token is correct
-2. Check bot has proper permissions in Discord server
-3. Ensure bot is online in Discord server member list
+1. **"secret not found"**
+   - Apply secrets first: `kubectl apply -f secrets.yaml`
 
-### Database issues:
-1. Check PVC is bound: `kubectl get pvc -n gamer-gambit`
-2. Verify volume mounts: `kubectl describe pod -n gamer-gambit <pod-name>`
+2. **"runner offline"** 
+   - Check GitHub Actions runner status
+   - Restart runner if needed
 
-### Network issues:
-1. Check if bot can reach Discord: `kubectl exec -n gamer-gambit <pod-name> -- curl -I https://discord.com`
-2. Check BGG API access: `kubectl exec -n gamer-gambit <pod-name> -- curl -I https://boardgamegeek.com`
+3. **"image pull backoff"**
+   - Verify GitHub Container Registry access
 
-## Cleanup
+See [../../../docs/TROUBLESHOOTING.md](../../../docs/TROUBLESHOOTING.md) for detailed troubleshooting.
 
-### Delete everything:
-```bash
-kubectl delete namespace gamer-gambit
-```
+## Secret Management
 
-### Delete specific components:
-```bash
-kubectl delete deployment kallax -n gamer-gambit
-kubectl delete pvc kallax-data -n gamer-gambit
-kubectl delete secret kallax-config kallax-api-keys -n gamer-gambit
-```
+**⚠️ SECURITY WARNING**: Never commit `secrets.yaml` to Git!
 
-## Production Considerations
+- Use `secrets.template.yaml` as a template
+- Edit locally and apply with kubectl
+- Secrets are git-ignored and never committed
 
-1. **Secrets Management**: Consider using external secret management (Vault, etc.)
-2. **Monitoring**: Add proper monitoring with Prometheus/Grafana
-3. **Backup**: Implement database backup strategy
-4. **Resource Limits**: Adjust resource limits based on usage
-5. **Node Affinity**: Pin to specific nodes if needed
-6. **Image Security**: Consider building custom Docker image instead of using init container
+See [SECRETS-README.md](SECRETS-README.md) for detailed instructions.
 
-## Security Notes
+## Archive
 
-- Secrets are stored in Kubernetes secret objects (base64 encoded, not encrypted by default)
-- Consider enabling encryption at rest for your cluster
-- Use RBAC to restrict access to the `gamer-gambit` namespace
-- Regularly rotate Discord bot tokens and API keys
+The `archive/` directory contains historical deployment files that are no longer used but kept for reference. The current deployment uses:
+
+- **Base manifests** in `base/` directory
+- **Kustomization** for environment-specific configurations  
+- **GitHub Actions** for automated CI/CD deployment
+
+---
+
+**Next Steps**: Once deployed successfully, see [../../../docs/OPERATIONS.md](../../../docs/OPERATIONS.md) for daily operational tasks.
