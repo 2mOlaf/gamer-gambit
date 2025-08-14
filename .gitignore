@@ -256,3 +256,13 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Kubernetes secrets (NEVER commit these!)
+**/secret.yaml
+**/secrets.yaml
+# Specifically for this project
+discord/kallax/k8s/secret.yaml
+discord/kallax/k8s/secrets.yaml
+# Allow templates
+!**/secrets.template.yaml
+!**/secret.template.yaml

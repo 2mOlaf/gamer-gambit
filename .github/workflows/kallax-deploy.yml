@@ -48,7 +48,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.8'
+        python-version: '3.11'
 
     - name: Cache Python dependencies
       uses: actions/cache@v3
@@ -198,6 +198,24 @@ jobs:
         echo "🧪 Setting up test environment..."
         kubectl create namespace gamer-gambit-test --dry-run=client -o yaml | kubectl apply -f -
 
+    - name: Check test secrets
+      run: |
+        echo "🔍 Checking test environment secrets..."
+        
+        # Check if required secrets exist
+        if ! kubectl get secret kallax-test-config -n gamer-gambit-test >/dev/null 2>&1; then
+          echo "❌ Error: kallax-test-config secret not found in gamer-gambit-test namespace"
+          echo "Please apply your secrets.yaml file first:"
+          echo "  kubectl apply -f discord/kallax/k8s/secrets.yaml"
+          exit 1
+        fi
+        
+        if ! kubectl get secret kallax-test-api-keys -n gamer-gambit-test >/dev/null 2>&1; then
+          echo "⚠️ Warning: kallax-test-api-keys secret not found (API features may not work)"
+        fi
+        
+        echo "✅ Required secrets found"
+        
     - name: Deploy to test environment
       run: |
         echo "🚀 Deploying Kallax bot to test environment..."
@@ -205,26 +223,17 @@ jobs:
         IMAGE_TAG="${{ needs.build-and-test.outputs.image-tag }}"
         echo "Using image: $IMAGE_TAG"
         
-        # Use test-specific deployment configuration
-        if [ -f discord/kallax/k8s/environments/test/kustomization.yaml ]; then
-          # Apply using kustomize if available
-          kubectl apply -k discord/kallax/k8s/environments/test/
-        else
-          # Fallback to basic deployment with test modifications
-          kubectl apply -f discord/kallax/k8s/base/service.yaml -n gamer-gambit-test
-          
-          # Create a test deployment
-          sed 's/name: kallax/name: test-kallax/g; s/app: kallax/app: test-kallax/g; s/namespace: gamer-gambit/namespace: gamer-gambit-test/g' discord/kallax/k8s/base/deployment.yaml | \
-          kubectl apply -f -
-        fi
+        # Apply test environment configuration using kustomize
+        echo "📋 Applying kustomization..."
+        kubectl apply -k discord/kallax/k8s/environments/test/
         
-        # Update the test deployment image
-        kubectl set image deployment/test-kallax kallax="$IMAGE_TAG" -n gamer-gambit-test || \
-        kubectl set image deployment/kallax kallax="$IMAGE_TAG" -n gamer-gambit-test
+        # Update the deployment image
+        echo "🔄 Updating deployment image..."
+        kubectl set image deployment/test-kallax test-kallax="$IMAGE_TAG" -n gamer-gambit-test
         
-        # Wait for rollout
-        kubectl rollout status deployment/test-kallax -n gamer-gambit-test --timeout=180s || \
-        kubectl rollout status deployment/kallax -n gamer-gambit-test --timeout=180s
+        # Wait for rollout to complete
+        echo "⏳ Waiting for deployment rollout..."
+        kubectl rollout status deployment/test-kallax -n gamer-gambit-test --timeout=300s
 
     - name: Run integration tests
       run: |
