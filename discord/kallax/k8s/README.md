@@ -36,7 +36,7 @@ kubectl apply -k environments/test/
 
 ```
 k8s/
-├── base/                          # Base Kubernetes manifests
+├── base/                          # Base Kubernetes manifests (for CI/CD)
 │   ├── deployment.yaml           # Main deployment configuration
 │   ├── service.yaml              # Kubernetes service
 │   ├── namespace.yaml            # Namespace definition
@@ -45,8 +45,15 @@ k8s/
 │   └── test/
 │       └── kustomization.yaml   # Test environment overrides
 ├── secrets.template.yaml         # Template for creating secrets
+├── secrets.yaml                  # 🔒 Your working secrets (git-ignored)
 ├── setup-secrets.ps1            # Windows setup script
 ├── setup-secrets.sh             # Linux setup script
+├── deploy-secrets.ps1           # Deploy secrets to K8s
+├── deploy.ps1                   # Manual deployment script
+├── deploy.sh                    # Manual deployment script (Linux)
+├── deployment-local.yaml        # Local deployment variant
+├── pvc-commands.md              # PVC management commands
+├── archive/                     # Historical files (reference only)
 └── SECRETS-README.md            # Secrets management guide
 ```
 

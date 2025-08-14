@@ -1,0 +1,23 @@
+# Working secrets file (never commit!)
+secrets.yaml
+
+# Working local deployment configurations  
+deployment-working.yaml
+local-config.yaml
+
+# Test deployment outputs
+test-deployment.yaml
+debug-*.yaml
+
+# Local notes and documentation
+notes.md
+deployment-notes.md
+local-*.md
+
+# Backup files
+*.bak
+*.backup
+
+# Local environment files
+.env.local
+local.env
