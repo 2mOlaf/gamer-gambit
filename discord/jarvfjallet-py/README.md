@@ -151,3 +151,4 @@ This project is for personal/community use.
 - Itch.io for their excellent game platform
 - The indie gaming community for inspiration
 - Kallax bot architecture for the modernization pattern
+# Fixed kubectl access for GitHub Actions runner
