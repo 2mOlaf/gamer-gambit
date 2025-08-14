@@ -152,3 +152,4 @@ This project is for personal/community use.
 - The indie gaming community for inspiration
 - Kallax bot architecture for the modernization pattern
 # Fixed kubectl access for GitHub Actions runner
+# Production deployment enabled
