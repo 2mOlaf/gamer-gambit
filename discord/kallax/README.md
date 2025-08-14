@@ -147,3 +147,8 @@ This project is for personal/community use. BoardGameGeek data is used according
 
 Kallax uses GitHub Actions for automated building and deployment to the Kubernetes cluster. Changes to the main branch trigger automatic deployment to production.
 
+## Recent Updates
+- Collection vs Recent Games display fix
+- Improved workflow dependencies
+- Production deployment ready
+

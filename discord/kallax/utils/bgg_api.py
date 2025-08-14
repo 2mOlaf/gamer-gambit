@@ -61,7 +61,7 @@ class BGGApiClient:
                 
         return None
     
-    async def search_games(self, query: str, exact: bool = False) -> List[Dict[str, Any]]:
+    async def search_games(self, query: str, exact: bool = False, include_ratings: bool = False) -> List[Dict[str, Any]]:
         """Search for games by name"""
         params = {
             'query': query,
@@ -93,6 +93,26 @@ class BGGApiClient:
                 }
                 if result['bgg_id']:
                     results.append(result)
+        
+        # If ratings requested and we have results, fetch rating data
+        if include_ratings and results and len(results) <= 5:  # Only for small result sets
+            try:
+                game_ids = [r['bgg_id'] for r in results[:5]]
+                detailed_games = await self.get_game_details(game_ids)
+                
+                # Create lookup for detailed data
+                detailed_lookup = {g['bgg_id']: g for g in detailed_games}
+                
+                # Enhance results with rating data
+                for result in results:
+                    detailed = detailed_lookup.get(result['bgg_id'])
+                    if detailed:
+                        result['rating'] = detailed.get('rating')
+                        result['weight'] = detailed.get('weight')
+                        result['rating_count'] = detailed.get('rating_count')
+                        
+            except Exception as e:
+                logger.warning(f"Failed to fetch rating data for search results: {e}")
                     
         return results
     
