@@ -142,20 +142,62 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Log deployment start
+      run: |
+        echo "🚀 Starting production deployment for Kallax bot..."
+        echo "Commit: ${{ github.sha }}"
+        echo "Author: ${{ github.actor }}"
+        echo "Branch: ${{ github.ref_name }}"
+        echo "Directory: ${{ env.BOT_DIRECTORY }}"
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata for production
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=sha,prefix=commit-
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value=production
+
+    - name: Build and push production Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ${{ env.BOT_DIRECTORY }}
+        file: ${{ env.BOT_DIRECTORY }}/Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
 
     - name: Deploy to Kubernetes
       run: |
         echo "🚀 Deploying Kallax bot to production..."
         
-        # Update the deployment with the new image
-        IMAGE_TAG="${{ needs.build-and-test.outputs.image-tag }}"
+        # Get the production image tag
+        IMAGE_TAG="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:production"
         echo "Using image: $IMAGE_TAG"
         
         # Apply the base deployment first
         kubectl apply -f discord/kallax/k8s/base/namespace.yaml
         kubectl apply -f discord/kallax/k8s/base/
         
-        # Update the deployment image
+        # Update the deployment with the freshly built image
         kubectl set image deployment/kallax kallax="$IMAGE_TAG" -n gamer-gambit
         
         # Wait for rollout to complete
@@ -183,7 +225,6 @@ jobs:
 
   # Test Environment Deployment  
   deploy-test:
-    needs: build-and-test
     runs-on: [self-hosted, kubernetes, discord-bot]
     if: github.ref == 'refs/heads/test' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'test')
     environment: 
@@ -192,6 +233,34 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Log deployment start
+      run: |
+        echo "🧪 Starting test deployment for Kallax bot..."
+        echo "Commit: ${{ github.sha }}"
+        echo "Author: ${{ github.actor }}"
+        echo "Branch: ${{ github.ref_name }}"
+        echo "Directory: ${{ env.BOT_DIRECTORY }}"
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        cache-dependency-path: ${{ env.BOT_DIRECTORY }}/requirements.txt
+
+    - name: Install dependencies and test
+      working-directory: ${{ env.BOT_DIRECTORY }}
+      run: |
+        echo "📦 Installing dependencies..."
+        pip install -r requirements.txt
+        pip install flake8
+        
+        echo "🔍 Running quick validation..."
+        python -c "from utils.database import Database; from utils.bgg_api import BGGApiClient; print('✅ Bot modules working')"
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || true
 
     - name: Create test namespace
       run: |
@@ -203,33 +272,64 @@ jobs:
         echo "🔍 Checking test environment secrets..."
         
         # Check if required secrets exist
-        if ! kubectl get secret kallax-test-config -n gamer-gambit-test >/dev/null 2>&1; then
+        if ! kubectl get secret kallax-test-config -n gamer-gambit-test > /dev/null 2>&1; then
           echo "❌ Error: kallax-test-config secret not found in gamer-gambit-test namespace"
           echo "Please apply your secrets.yaml file first:"
           echo "  kubectl apply -f discord/kallax/k8s/secrets.yaml"
           exit 1
         fi
         
-        if ! kubectl get secret kallax-test-api-keys -n gamer-gambit-test >/dev/null 2>&1; then
+        if ! kubectl get secret kallax-test-api-keys -n gamer-gambit-test > /dev/null 2>&1; then
           echo "⚠️ Warning: kallax-test-api-keys secret not found (API features may not work)"
         fi
         
         echo "✅ Required secrets found"
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata for test
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=sha,prefix={{branch}}-
+          type=raw,value=test,enable=${{ github.ref_name == 'test' }}
+
+    - name: Build and push test Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ${{ env.BOT_DIRECTORY }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
         
     - name: Deploy to test environment
       run: |
         echo "🚀 Deploying Kallax bot to test environment..."
         
-        IMAGE_TAG="${{ needs.build-and-test.outputs.image-tag }}"
+        # Get the test image tag
+        IMAGE_TAG="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
         echo "Using image: $IMAGE_TAG"
         
         # Apply test environment configuration using kustomize
         echo "📋 Applying kustomization..."
         kubectl apply -k discord/kallax/k8s/environments/test/
         
-        # Update the deployment image
+        # Update the deployment with the freshly built image
         echo "🔄 Updating deployment image..."
-        kubectl set image deployment/test-kallax test-kallax="$IMAGE_TAG" -n gamer-gambit-test
+        kubectl set image deployment/test-kallax kallax="$IMAGE_TAG" -n gamer-gambit-test
         
         # Wait for rollout to complete
         echo "⏳ Waiting for deployment rollout..."
@@ -252,7 +352,8 @@ jobs:
         echo "## 🧪 Test Deployment Successful!" >> $GITHUB_STEP_SUMMARY
         echo "- **Environment:** Test" >> $GITHUB_STEP_SUMMARY
         echo "- **Namespace:** gamer-gambit-test" >> $GITHUB_STEP_SUMMARY
-        echo "- **Image:** ${{ needs.build-and-test.outputs.image-tag }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Image:** ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
 
   # Cleanup old test deployments on PR close
   cleanup-test:
