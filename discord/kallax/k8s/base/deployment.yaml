@@ -96,7 +96,7 @@ spec:
             command:
             - /bin/bash
             - -c
-            - pidof python && test -f /app/data/kallax.db
+            - pidof python && test -f "${DATABASE_PATH}"
           initialDelaySeconds: 60
           periodSeconds: 15
           timeoutSeconds: 5

@@ -39,7 +39,10 @@ class KallaxBot(commands.Bot):
     
     def __init__(self):
         intents = discord.Intents.default()
-        intents.message_content = True
+        # Conditionally enable message content intent based on environment
+        environment = os.getenv('ENVIRONMENT', 'production')
+        if environment == 'production':
+            intents.message_content = True
         intents.guilds = True
         # Removed members intent - not needed for individual user interactions
         

@@ -109,6 +109,10 @@ jobs:
           type=ref,event=pr
           type=sha,prefix=commit-
           type=raw,value=latest,enable={{is_default_branch}}
+        flavor: |
+          prefix=
+          suffix=
+          lowercaser
 
     - name: Build and push Docker image
       id: build
@@ -173,6 +177,10 @@ jobs:
           type=sha,prefix=commit-
           type=raw,value=latest,enable={{is_default_branch}}
           type=raw,value=production
+        flavor: |
+          prefix=
+          suffix=
+          lowercaser
 
     - name: Build and push production Docker image
       uses: docker/build-push-action@v5
@@ -189,8 +197,9 @@ jobs:
       run: |
         echo "🚀 Deploying Kallax bot to production..."
         
-        # Get the production image tag
-        IMAGE_TAG="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:production"
+        # Get the production image tag (lowercase for registry compatibility)
+        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        IMAGE_TAG="${{ env.REGISTRY }}/${REPO_OWNER_LOWER}/${{ env.IMAGE_NAME }}:production"
         echo "Using image: $IMAGE_TAG"
         
         # Apply the base deployment first
@@ -304,6 +313,10 @@ jobs:
           type=ref,event=branch
           type=sha,prefix={{branch}}-
           type=raw,value=test,enable=${{ github.ref_name == 'test' }}
+        flavor: |
+          prefix=
+          suffix=
+          lowercaser
 
     - name: Build and push test Docker image
       uses: docker/build-push-action@v5
@@ -319,8 +332,9 @@ jobs:
       run: |
         echo "🚀 Deploying Kallax bot to test environment..."
         
-        # Get the test image tag
-        IMAGE_TAG="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+        # Get the test image tag (lowercase for registry compatibility)
+        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        IMAGE_TAG="${{ env.REGISTRY }}/${REPO_OWNER_LOWER}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
         echo "Using image: $IMAGE_TAG"
         
         # Apply test environment configuration using kustomize
