@@ -524,30 +524,47 @@ class GameSearchCog(commands.Cog):
         scored_results = []
         query_lower = query.lower().strip()
         
+        # Normalize query for better matching (remove common punctuation)
+        normalized_query = self._normalize_name(query_lower)
+        
         for result in results:
             score = 0.0
             name_lower = result.get('name', '').lower()
+            normalized_name = self._normalize_name(name_lower)
             
-            # Exact match gets highest score
-            if name_lower == query_lower:
+            # Check if this looks like an expansion/add-on
+            is_expansion = self._is_likely_expansion(name_lower)
+            
+            # Primary scoring - prioritize normalized matches for better punctuation handling
+            if normalized_name == normalized_query:
                 score += 1.0
-            # Start with query gets high score
-            elif name_lower.startswith(query_lower):
+            elif name_lower == query_lower:  # Still reward exact punctuation match
+                score += 0.98
+            elif normalized_name.startswith(normalized_query):
                 score += 0.9
-            # Contains query gets good score
-            elif query_lower in name_lower:
+            elif name_lower.startswith(query_lower):
+                score += 0.88
+            elif normalized_query in normalized_name:
                 score += 0.8
-            # Use similarity ratio for fuzzy matching
+            elif query_lower in name_lower:
+                score += 0.78
             else:
-                similarity = difflib.SequenceMatcher(None, query_lower, name_lower).ratio()
+                # Try fuzzy matching on both normalized and original
+                norm_similarity = difflib.SequenceMatcher(None, normalized_query, normalized_name).ratio()
+                orig_similarity = difflib.SequenceMatcher(None, query_lower, name_lower).ratio()
+                similarity = max(norm_similarity, orig_similarity)
                 score += similarity * 0.7
+            
+            # Base game bonus - prioritize base games over expansions significantly
+            if not is_expansion:
+                score += 0.15
             
             # Platform-specific bonuses
             if catalog == 'bgg' and result.get('platform') == 'bgg':
                 score += 0.1
-                # BGG games with higher ratings get bonus
+                # BGG games with higher ratings get smaller bonus to not overshadow exact matches
                 if result.get('rating'):
-                    score += min(result['rating'] / 10 * 0.1, 0.1)
+                    score += min(result['rating'] / 10 * 0.05, 0.05)
             elif catalog == 'steam' and result.get('platform') == 'steam':
                 score += 0.1
             elif catalog == 'xbox' and result.get('platform') == 'xbox':
@@ -557,14 +574,14 @@ class GameSearchCog(commands.Cog):
                 if result.get('platform') == 'bgg':
                     score += 0.05
             
-            # Year bonus (more recent games get slight bonus)
+            # Reduced year bonus to not overshadow base games
             if result.get('year_published'):
                 year = result['year_published']
                 if isinstance(year, str) and year.isdigit():
                     year = int(year)
                 if isinstance(year, int) and year > 2000:
-                    # Bonus for games from 2000 onwards, max 0.1
-                    year_bonus = min((year - 2000) / 200, 0.1)
+                    # Smaller year bonus to prevent newer expansions from outranking base games
+                    year_bonus = min((year - 2000) / 400, 0.05)
                     score += year_bonus
             
             scored_results.append((result, score))
@@ -572,6 +589,39 @@ class GameSearchCog(commands.Cog):
         # Sort by score (highest first)
         scored_results.sort(key=lambda x: x[1], reverse=True)
         return scored_results
+    
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        """Normalize game name for better matching by removing punctuation"""
+        import re
+        # Remove common punctuation and extra spaces
+        normalized = re.sub(r'[:()\-–—.,!?\[\]{}]', ' ', name)
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        return normalized
+    
+    @staticmethod
+    def _is_likely_expansion(name: str) -> bool:
+        """Check if a game name suggests it's an expansion or add-on"""
+        expansion_keywords = [
+            'expansion', 'add-on', 'addon', 'extension', 'supplement',
+            'dlc', 'pack', 'module', 'scenario', 'campaign', 'promo',
+            'kickstarter', 'stretch goals', 'upgrade', 'deluxe',
+            'season', 'episode', 'chapter', 'mini', 'micro'
+        ]
+        
+        name_lower = name.lower()
+        
+        # Check for explicit expansion keywords
+        if any(keyword in name_lower for keyword in expansion_keywords):
+            return True
+        
+        # Check for patterns like "Game: Subtitle" where subtitle suggests expansion
+        if ':' in name and len(name.split(':')) == 2:
+            subtitle = name.split(':')[1].strip().lower()
+            if any(keyword in subtitle for keyword in ['expansion', 'add-on', 'addon', 'pack']):
+                return True
+        
+        return False
     
     @staticmethod
     def _get_weight_description(weight: float) -> str:
