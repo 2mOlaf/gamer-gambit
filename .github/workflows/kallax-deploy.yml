@@ -202,15 +202,17 @@ jobs:
         IMAGE_TAG="${{ env.REGISTRY }}/${REPO_OWNER_LOWER}/${{ env.IMAGE_NAME }}:production"
         echo "Using image: $IMAGE_TAG"
         
-        # Apply the base deployment first
-        kubectl apply -f discord/kallax/k8s/base/namespace.yaml
-        kubectl apply -f discord/kallax/k8s/base/
+        # Apply the production environment using kustomize
+        echo "📋 Applying production kustomization..."
+        kubectl apply -k discord/kallax/k8s/environments/production/
         
         # Update the deployment with the freshly built image
-        kubectl set image deployment/kallax kallax="$IMAGE_TAG" -n gamer-gambit
+        echo "🔄 Updating deployment image..."
+        kubectl set image deployment/prod-kallax kallax="$IMAGE_TAG" -n gamer-gambit
         
         # Wait for rollout to complete
-        kubectl rollout status deployment/kallax -n gamer-gambit --timeout=300s
+        echo "⏳ Waiting for deployment rollout..."
+        kubectl rollout status deployment/prod-kallax -n gamer-gambit --timeout=300s
 
     - name: Verify deployment
       run: |
@@ -221,7 +223,7 @@ jobs:
         kubectl wait --for=condition=ready pod -l app=kallax -n gamer-gambit --timeout=180s
         
         echo "📋 Recent logs:"
-        kubectl logs -n gamer-gambit deployment/kallax --tail=20
+        kubectl logs -n gamer-gambit deployment/prod-kallax --tail=20
 
     - name: Deployment success notification
       if: success()
