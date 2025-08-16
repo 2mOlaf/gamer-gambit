@@ -127,11 +127,28 @@ class GameAssignment(commands.Cog):
             games = await self.bot.database.get_user_games_legacy(user_id, username)
             
             if not games:
-                embed = discord.Embed(
-                    title=f"📋 {target_user.display_name}'s Games",
-                    description="No assigned games found.",
-                    color=discord.Color.light_gray()
-                )
+                # Check if database has any games at all
+                try:
+                    stats = await self.bot.database.get_game_stats()
+                    if stats['total_games'] == 0:
+                        embed = discord.Embed(
+                            title="📋 No Games Available",
+                            description="The game database appears to be empty. Please contact an administrator to import game data.",
+                            color=discord.Color.orange()
+                        )
+                    else:
+                        embed = discord.Embed(
+                            title=f"📋 {target_user.display_name}'s Games",
+                            description="No assigned games found. Use `/hit` to get your first game!",
+                            color=discord.Color.light_gray()
+                        )
+                except Exception:
+                    # Fallback if stats query fails
+                    embed = discord.Embed(
+                        title=f"📋 {target_user.display_name}'s Games", 
+                        description="No assigned games found.",
+                        color=discord.Color.light_gray()
+                    )
                 await interaction.followup.send(embed=embed)
                 return
                 
@@ -225,11 +242,28 @@ class GameAssignment(commands.Cog):
             games = await self.bot.database.get_user_games_legacy(user_id, username)
             
             if not games:
-                embed = discord.Embed(
-                    title="📊 Your Game Statistics",
-                    description="You haven't been assigned any games yet! Use `/hit` to get started.",
-                    color=discord.Color.light_gray()
-                )
+                # Check if database has any games at all
+                try:
+                    stats = await self.bot.database.get_game_stats()
+                    if stats['total_games'] == 0:
+                        embed = discord.Embed(
+                            title="📊 Database Empty",
+                            description="The game database appears to be empty. Please contact an administrator to import game data.",
+                            color=discord.Color.orange()
+                        )
+                    else:
+                        embed = discord.Embed(
+                            title="📊 Your Game Statistics",
+                            description="You haven't been assigned any games yet! Use `/hit` to get started.",
+                            color=discord.Color.light_gray()
+                        )
+                except Exception:
+                    # Fallback if stats query fails
+                    embed = discord.Embed(
+                        title="📊 Your Game Statistics",
+                        description="You haven't been assigned any games yet! Use `/hit` to get started.",
+                        color=discord.Color.light_gray()
+                    )
                 await interaction.followup.send(embed=embed)
                 return
                 
