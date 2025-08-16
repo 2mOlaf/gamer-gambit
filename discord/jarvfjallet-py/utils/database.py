@@ -175,7 +175,7 @@ class Database:
             row = await cursor.fetchone()
             
             if row:
-                return dict(row)
+                return {k: row[k] for k in row.keys()}
             return None
             
     async def assign_game_to_user(self, game_id: int, user_id: str, username: str = None) -> bool:
@@ -220,7 +220,7 @@ class Database:
             """, (user_id,))
             
             rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+            return [{k: row[k] for k in row.keys()} for row in rows]
             
     async def get_user_games_legacy(self, user_id: str, username: str = None) -> List[Dict[str, Any]]:
         """Get user's games using legacy method (for backward compatibility)"""
@@ -253,7 +253,7 @@ class Database:
             """, params)
             
             rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+            return [{k: row[k] for k in row.keys()} for row in rows]
             
     async def update_review_completion(self, game_id: int, review_url: str) -> bool:
         """Mark a game review as completed"""
@@ -323,7 +323,7 @@ class Database:
             row = await cursor.fetchone()
             
             if row:
-                return dict(row)
+                return {k: row[k] for k in row.keys()}
             return None
             
     async def close(self):
