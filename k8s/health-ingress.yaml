@@ -1,0 +1,272 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gamer-gambit-health
+  namespace: gamer-gambit
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+    # Add CORS headers for browser access
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "Content-Type"
+  labels:
+    app: gamer-gambit-health
+spec:
+  ingressClassName: nginx
+  rules:
+  # Jarvfjallet health endpoint
+  - host: jarvfjallet.k8s.dork.life
+    http:
+      paths:
+      - path: /health
+        pathType: Prefix
+        backend:
+          service:
+            name: jarvfjallet-service
+            port:
+              number: 8080
+      - path: /metrics
+        pathType: Prefix
+        backend:
+          service:
+            name: jarvfjallet-service
+            port:
+              number: 8080
+  # Kallax (dev) health endpoint
+  - host: kallax.k8s.dork.life
+    http:
+      paths:
+      - path: /health
+        pathType: Prefix
+        backend:
+          service:
+            name: kallax
+            port:
+              number: 8080
+      - path: /metrics
+        pathType: Prefix
+        backend:
+          service:
+            name: kallax
+            port:
+              number: 8080
+      - path: /status
+        pathType: Prefix
+        backend:
+          service:
+            name: kallax
+            port:
+              number: 8080
+  # Kallax Production health endpoint
+  - host: prod-kallax.k8s.dork.life
+    http:
+      paths:
+      - path: /health
+        pathType: Prefix
+        backend:
+          service:
+            name: prod-kallax
+            port:
+              number: 8080
+      - path: /metrics
+        pathType: Prefix
+        backend:
+          service:
+            name: prod-kallax
+            port:
+              number: 8080
+      - path: /status
+        pathType: Prefix
+        backend:
+          service:
+            name: prod-kallax
+            port:
+              number: 8080
+  # Health dashboard overview
+  - host: health.k8s.dork.life
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: health-dashboard
+            port:
+              number: 80
+---
+# Simple health dashboard service
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: health-dashboard-html
+  namespace: gamer-gambit
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Gamer Gambit Health Dashboard</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background-color: #1a1a1a;
+                color: #ffffff;
+            }
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+            }
+            h1 {
+                color: #4CAF50;
+                text-align: center;
+                margin-bottom: 30px;
+            }
+            .service-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 20px;
+                margin-top: 30px;
+            }
+            .service-card {
+                background: #2d2d2d;
+                border-radius: 8px;
+                padding: 20px;
+                border: 1px solid #444;
+            }
+            .service-card h2 {
+                color: #64B5F6;
+                margin-top: 0;
+            }
+            .health-status {
+                display: inline-block;
+                padding: 5px 10px;
+                border-radius: 4px;
+                margin: 5px 5px 5px 0;
+                text-decoration: none;
+                font-weight: bold;
+            }
+            .health-link {
+                background: #4CAF50;
+                color: white;
+            }
+            .metrics-link {
+                background: #FF9800;
+                color: white;
+            }
+            .status-link {
+                background: #2196F3;
+                color: white;
+            }
+            .health-status:hover {
+                opacity: 0.8;
+            }
+            .description {
+                color: #ccc;
+                margin-bottom: 15px;
+                font-size: 14px;
+            }
+            .last-updated {
+                text-align: center;
+                color: #888;
+                margin-top: 30px;
+                font-size: 12px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🎮 Gamer Gambit Health Dashboard</h1>
+            
+            <div class="service-grid">
+                <div class="service-card">
+                    <h2>🎯 Jarvfjallet</h2>
+                    <div class="description">Discord bot for Itch.io game assignment</div>
+                    <a href="http://jarvfjallet.k8s.dork.life/health" class="health-status health-link">Health</a>
+                    <a href="http://jarvfjallet.k8s.dork.life/metrics" class="health-status metrics-link">Metrics</a>
+                </div>
+                
+                <div class="service-card">
+                    <h2>🎲 Kallax (Dev)</h2>
+                    <div class="description">BoardGameGeek Discord bot - Development</div>
+                    <a href="http://kallax.k8s.dork.life/health" class="health-status health-link">Health</a>
+                    <a href="http://kallax.k8s.dork.life/metrics" class="health-status metrics-link">Metrics</a>
+                    <a href="http://kallax.k8s.dork.life/status" class="health-status status-link">Status</a>
+                </div>
+                
+                <div class="service-card">
+                    <h2>🎲 Kallax (Production)</h2>
+                    <div class="description">BoardGameGeek Discord bot - Production</div>
+                    <a href="http://prod-kallax.k8s.dork.life/health" class="health-status health-link">Health</a>
+                    <a href="http://prod-kallax.k8s.dork.life/metrics" class="health-status metrics-link">Metrics</a>
+                    <a href="http://prod-kallax.k8s.dork.life/status" class="health-status status-link">Status</a>
+                </div>
+            </div>
+            
+            <div class="last-updated">
+                Last updated: <span id="timestamp"></span>
+            </div>
+        </div>
+        
+        <script>
+            // Update timestamp
+            document.getElementById('timestamp').textContent = new Date().toLocaleString();
+            
+            // Auto-refresh every 30 seconds
+            setTimeout(() => location.reload(), 30000);
+        </script>
+    </body>
+    </html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: health-dashboard
+  namespace: gamer-gambit
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: health-dashboard
+  template:
+    metadata:
+      labels:
+        app: health-dashboard
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: html-volume
+          mountPath: /usr/share/nginx/html
+        resources:
+          requests:
+            memory: "16Mi"
+            cpu: "10m"
+          limits:
+            memory: "32Mi"
+            cpu: "50m"
+      volumes:
+      - name: html-volume
+        configMap:
+          name: health-dashboard-html
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: health-dashboard
+  namespace: gamer-gambit
+spec:
+  selector:
+    app: health-dashboard
+  ports:
+  - port: 80
+    targetPort: 80
+  type: ClusterIP
