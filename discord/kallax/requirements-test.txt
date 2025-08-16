@@ -1,0 +1,31 @@
+# Testing dependencies for Kallax Discord Bot
+# Install with: pip install -r requirements-test.txt
+
+# Core testing framework
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-mock>=3.11.0
+pytest-cov>=4.1.0
+
+# Async testing utilities
+pytest-aiohttp>=1.0.5
+aioresponses>=0.7.4
+
+# API mocking and HTTP testing
+responses>=0.23.0
+factory-boy>=3.3.0
+freezegun>=1.2.2
+
+# Code quality and formatting
+black>=23.0.0
+isort>=5.12.0
+flake8>=6.0.0
+mypy>=1.5.0
+
+# Environment and configuration
+python-dotenv>=1.0.0
+
+# Additional testing utilities
+parameterized>=0.9.0
+testcontainers>=3.7.0
+deepdiff>=6.5.0
