@@ -41,6 +41,7 @@ class Database:
     async def _create_tables(self):
         """Create the necessary database tables"""
         async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
             # Games table - stores all game information
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS games (
@@ -93,6 +94,7 @@ class Database:
         await self.initialize()
         
         async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT COUNT(*) FROM games")
             count = await cursor.fetchone()
             return count[0] > 0
@@ -110,6 +112,7 @@ class Database:
         imported_count = 0
         
         async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
             for game in games:
                 try:
                     # Convert boolean strings to actual booleans
@@ -162,6 +165,7 @@ class Database:
         await self.initialize()
         
         async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
             cursor = await db.execute("""
                 SELECT * FROM games 
                 WHERE reviewer IS NULL OR reviewer = ''
@@ -180,6 +184,7 @@ class Database:
         
         try:
             async with aiosqlite.connect(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
                 # Update the games table
                 await db.execute("""
                     UPDATE games 
@@ -205,6 +210,7 @@ class Database:
         await self.initialize()
         
         async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
             cursor = await db.execute("""
                 SELECT g.*, ua.assigned_at, ua.completed_at, ua.status
                 FROM games g
@@ -240,6 +246,7 @@ class Database:
         where_clause = " WHERE " + " ".join(conditions)
         
         async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
             cursor = await db.execute(f"""
                 SELECT * FROM games {where_clause}
                 ORDER BY assign_date DESC
@@ -256,6 +263,7 @@ class Database:
             review_date = int(datetime.now().timestamp() * 1000)
             
             async with aiosqlite.connect(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
                 # Update games table
                 await db.execute("""
                     UPDATE games 
@@ -282,6 +290,7 @@ class Database:
         await self.initialize()
         
         async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
             # Total games
             cursor = await db.execute("SELECT COUNT(*) FROM games")
             total_games = (await cursor.fetchone())[0]
@@ -309,6 +318,7 @@ class Database:
         await self.initialize()
         
         async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT * FROM games WHERE id = ?", (game_id,))
             row = await cursor.fetchone()
             
