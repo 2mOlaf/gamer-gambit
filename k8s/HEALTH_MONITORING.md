@@ -19,17 +19,10 @@ The setup uses:
 | **Health Dashboard** | http://health.k8s.dork.life/ | Central monitoring dashboard |
 | **Jarvfjallet Health** | http://jarvfjallet.k8s.dork.life/health | Discord bot health status |
 | **Jarvfjallet Metrics** | http://jarvfjallet.k8s.dork.life/metrics | Discord bot metrics |
-
-### Kallax Endpoints (Needs Investigation) ⚠️
-
-| Service | URL | Status | Notes |
-|---------|-----|--------|-------|
-| **Kallax Health (Dev)** | http://kallax.k8s.dork.life/health | 504 Timeout | May need health endpoint implementation |
-| **Kallax Metrics (Dev)** | http://kallax.k8s.dork.life/metrics | 504 Timeout | May need health endpoint implementation |
-| **Kallax Status (Dev)** | http://kallax.k8s.dork.life/status | 504 Timeout | May need health endpoint implementation |
-| **Prod Kallax Health** | http://prod-kallax.k8s.dork.life/health | 504 Timeout | May need health endpoint implementation |
-| **Prod Kallax Metrics** | http://prod-kallax.k8s.dork.life/metrics | 504 Timeout | May need health endpoint implementation |
-| **Prod Kallax Status** | http://prod-kallax.k8s.dork.life/status | 504 Timeout | May need health endpoint implementation |
+| **Kallax Health (Dev)** | http://kallax.k8s.dork.life/health | BoardGameGeek bot health status |
+| **Kallax Metrics (Dev)** | http://kallax.k8s.dork.life/metrics | BoardGameGeek bot metrics |
+| **Prod Kallax Health** | http://prod-kallax.k8s.dork.life/health | Production BoardGameGeek bot health |
+| **Prod Kallax Metrics** | http://prod-kallax.k8s.dork.life/metrics | Production BoardGameGeek bot metrics |
 
 ## 🔧 DNS Configuration
 
@@ -169,5 +162,5 @@ This script will:
 
 ---
 
-**Status**: ✅ Health monitoring setup is working for Jarvfjallet and Health Dashboard  
-**Next**: Investigate and fix Kallax health endpoint timeouts
+**Status**: ✅ **ALL HEALTH ENDPOINTS WORKING!** Complete monitoring setup for all services  
+**Fixed**: Network policy configuration now allows access from ingress controllers and internal networks
