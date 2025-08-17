@@ -1,0 +1,119 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kallax-network-policy-restrictive
+  namespace: gamer-gambit
+  labels:
+    app: kallax
+    component: discord-bot
+    environment: production
+spec:
+  podSelector:
+    matchLabels:
+      app: kallax
+      component: discord-bot
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow health endpoint access from monitoring namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  # Allow health endpoint access from kube-system namespace (ingress controllers)
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  # Allow health endpoint access from internal networks
+  - from:
+    - ipBlock:
+        cidr: 192.168.1.0/24
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  - from:
+    - ipBlock:
+        cidr: 192.168.2.0/28
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  # Allow health endpoint access from pod network (for ingress controller pods)
+  - from:
+    - ipBlock:
+        cidr: 10.42.0.0/16  # Adjust this to match your pod network CIDR
+    ports:
+    - protocol: TCP
+      port: 8080
+
+  egress:
+  # Allow DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  
+  # Allow HTTPS to Cloudflare (Discord API)
+  - to:
+    - ipBlock:
+        cidr: 162.159.128.0/24
+    - ipBlock:
+        cidr: 162.159.129.0/24
+    - ipBlock:
+        cidr: 162.159.130.0/24
+    ports:
+    - protocol: TCP
+      port: 443
+  
+  # Allow HTTPS to external services (excluding private networks)
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443
+  
+  # Allow NFS access to internal networks
+  - to:
+    - ipBlock:
+        cidr: 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 2049
+    - protocol: UDP
+      port: 2049
+    - protocol: TCP
+      port: 111
+    - protocol: UDP
+      port: 111
+  
+  # Allow HTTP to external services (excluding private networks)  
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 44

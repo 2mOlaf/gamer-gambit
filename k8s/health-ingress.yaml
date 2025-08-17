@@ -52,13 +52,6 @@ spec:
             name: kallax
             port:
               number: 8080
-      - path: /status
-        pathType: Prefix
-        backend:
-          service:
-            name: kallax
-            port:
-              number: 8080
   # Kallax Production health endpoint
   - host: prod-kallax.k8s.dork.life
     http:
@@ -71,13 +64,6 @@ spec:
             port:
               number: 8080
       - path: /metrics
-        pathType: Prefix
-        backend:
-          service:
-            name: prod-kallax
-            port:
-              number: 8080
-      - path: /status
         pathType: Prefix
         backend:
           service:
@@ -196,7 +182,6 @@ data:
                     <div class="description">BoardGameGeek Discord bot - Development</div>
                     <a href="http://kallax.k8s.dork.life/health" class="health-status health-link">Health</a>
                     <a href="http://kallax.k8s.dork.life/metrics" class="health-status metrics-link">Metrics</a>
-                    <a href="http://kallax.k8s.dork.life/status" class="health-status status-link">Status</a>
                 </div>
                 
                 <div class="service-card">
@@ -204,7 +189,6 @@ data:
                     <div class="description">BoardGameGeek Discord bot - Production</div>
                     <a href="http://prod-kallax.k8s.dork.life/health" class="health-status health-link">Health</a>
                     <a href="http://prod-kallax.k8s.dork.life/metrics" class="health-status metrics-link">Metrics</a>
-                    <a href="http://prod-kallax.k8s.dork.life/status" class="health-status status-link">Status</a>
                 </div>
             </div>
             
